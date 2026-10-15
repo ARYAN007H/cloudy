@@ -1,0 +1,39 @@
+# Rust build artifacts
+/target/
+**/*.rs.bk
+*.pdb
+
+# Tauri build artifacts
+gui/src-tauri/target/
+
+# Sensitive credentials & tokens (MUST NOT be committed)
+credentials.json
+tokens.json
+*.pem
+*.key
+*.pfx
+.env
+.env.*
+!.env.example
+
+# Local SQLite databases & cache
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+logs/
+
+# IDE & Editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Operating system files
+.DS_Store
+Thumbs.db
