@@ -1,172 +1,305 @@
+//! Background synchronisation of every account into the metadata cache.
+
 use crate::api::DriveClient;
 use crate::cache::MetadataCache;
 use crate::error::CloudError;
 use crate::tree::VirtualTree;
-use crate::types::SyncStatus;
-use parking_lot::RwLock;
+use crate::types::{DriveFile, EngineEvent, SyncStatus};
+use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use tokio::time::{sleep, Duration};
+use std::time::Duration;
+use tokio::runtime::Handle;
+use tokio::sync::{broadcast, Notify};
+use tokio_util::sync::CancellationToken;
+use tracing::{info, warn};
 
+pub type EventBus = broadcast::Sender<EngineEvent>;
+
+struct AccountTask {
+    cancel: CancellationToken,
+    kick: Arc<Notify>,
+}
+
+struct Inner {
+    api: Arc<DriveClient>,
+    cache: Arc<MetadataCache>,
+    tree: Arc<VirtualTree>,
+    events: EventBus,
+    /// Shared with the engine: the single source of truth for linked accounts.
+    accounts: Arc<RwLock<Vec<String>>>,
+    statuses: RwLock<HashMap<String, SyncStatus>>,
+    tasks: Mutex<HashMap<String, AccountTask>>,
+    interval_secs: AtomicU64,
+    rebuild_lock: Mutex<()>,
+}
+
+#[derive(Clone)]
 pub struct SyncEngine {
-    statuses: Arc<RwLock<HashMap<String, SyncStatus>>>,
-    stop_signal: Arc<AtomicBool>,
-    all_accounts: Arc<RwLock<Vec<String>>>,
+    inner: Arc<Inner>,
 }
 
 impl SyncEngine {
-    pub fn new() -> Self {
+    pub fn new(
+        api: Arc<DriveClient>,
+        cache: Arc<MetadataCache>,
+        tree: Arc<VirtualTree>,
+        accounts: Arc<RwLock<Vec<String>>>,
+        events: EventBus,
+        interval_secs: u64,
+    ) -> Self {
         Self {
-            statuses: Arc::new(RwLock::new(HashMap::new())),
-            stop_signal: Arc::new(AtomicBool::new(false)),
-            all_accounts: Arc::new(RwLock::new(Vec::new())),
+            inner: Arc::new(Inner {
+                api,
+                cache,
+                tree,
+                events,
+                accounts,
+                statuses: RwLock::new(HashMap::new()),
+                tasks: Mutex::new(HashMap::new()),
+                interval_secs: AtomicU64::new(interval_secs.max(5)),
+                rebuild_lock: Mutex::new(()),
+            }),
         }
     }
 
-    pub fn start(&self, accounts: Vec<String>, interval: u64, api: Arc<DriveClient>, cache: Arc<MetadataCache>, tree: Arc<VirtualTree>) -> Result<(), CloudError> {
-        self.stop_signal.store(false, Ordering::SeqCst);
-        *self.all_accounts.write() = accounts.clone();
+    pub fn set_interval(&self, secs: u64) {
+        self.inner.interval_secs.store(secs.max(5), Ordering::SeqCst);
+        self.kick_all(); // pick up the new interval immediately
+    }
 
-        let handle = match tokio::runtime::Handle::try_current() {
-            Ok(h) => h,
-            Err(_) => {
-                tracing::warn!("No active Tokio runtime found to start background sync; sync will start when runtime is available");
-                return Ok(());
+    pub fn status(&self, account: &str) -> SyncStatus {
+        self.inner.statuses.read().get(account).cloned().unwrap_or(SyncStatus::Idle)
+    }
+
+    pub fn is_running(&self, account: &str) -> bool {
+        self.inner.tasks.lock().contains_key(account)
+    }
+
+    /// Start (or leave running) the sync loop of one account.
+    pub fn start_account(&self, handle: &Handle, account: &str) {
+        let mut tasks = self.inner.tasks.lock();
+        if tasks.contains_key(account) {
+            return;
+        }
+        let cancel = CancellationToken::new();
+        let kick = Arc::new(Notify::new());
+        tasks.insert(account.to_string(), AccountTask { cancel: cancel.clone(), kick: kick.clone() });
+        let inner = self.inner.clone();
+        let account = account.to_string();
+        handle.spawn(async move { inner.run_account(account, cancel, kick).await });
+    }
+
+    pub fn stop_account(&self, account: &str) {
+        if let Some(t) = self.inner.tasks.lock().remove(account) {
+            t.cancel.cancel();
+        }
+        self.inner.statuses.write().remove(account);
+    }
+
+    pub fn stop_all(&self) {
+        for (_, t) in self.inner.tasks.lock().drain() {
+            t.cancel.cancel();
+        }
+    }
+
+    /// Sync this account as soon as possible (also resumes a paused-for-login one).
+    pub fn kick(&self, account: &str) {
+        if let Some(t) = self.inner.tasks.lock().get(account) {
+            t.kick.notify_one();
+        }
+    }
+
+    pub fn kick_all(&self) {
+        for t in self.inner.tasks.lock().values() {
+            t.kick.notify_one();
+        }
+    }
+
+    /// One synchronous round for an account (full or incremental).
+    pub async fn sync_once(&self, account: &str) -> Result<(), CloudError> {
+        self.inner.sync_once(account, &CancellationToken::new()).await
+    }
+
+    /// Rebuild the virtual tree from the cache and tell the UIs.
+    pub async fn rebuild_tree(&self) -> Result<(), CloudError> {
+        let inner = self.inner.clone();
+        tokio::task::spawn_blocking(move || inner.rebuild_tree_blocking())
+            .await
+            .map_err(|e| CloudError::Cache(e.to_string()))?
+    }
+
+    pub fn rebuild_tree_blocking(&self) -> Result<(), CloudError> {
+        self.inner.rebuild_tree_blocking()
+    }
+}
+
+impl Inner {
+    fn emit_status(&self, account: &str, status: SyncStatus) {
+        self.statuses.write().insert(account.to_string(), status.clone());
+        let files_indexed = self.cache.get_file_count_for_account(account).unwrap_or(0) as u64;
+        let _ = self.events.send(EngineEvent::Sync { account: account.to_string(), status, files_indexed });
+    }
+
+    fn rebuild_tree_blocking(&self) -> Result<(), CloudError> {
+        let _g = self.rebuild_lock.lock(); // serialise: an older rebuild must never overwrite a newer one
+        let accounts = self.accounts.read().clone();
+        self.tree.rebuild_from_cache(&self.cache, &accounts)?;
+        let _ = self.events.send(EngineEvent::TreeChanged);
+        Ok(())
+    }
+
+    async fn rebuild(self: &Arc<Self>) {
+        let me = self.clone();
+        match tokio::task::spawn_blocking(move || me.rebuild_tree_blocking()).await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => warn!("Tree rebuild failed: {e}"),
+            Err(e) => warn!("Tree rebuild task failed: {e}"),
+        }
+    }
+
+    async fn run_account(self: Arc<Self>, account: String, cancel: CancellationToken, kick: Arc<Notify>) {
+        let mut failures = 0u32;
+        loop {
+            if cancel.is_cancelled() {
+                break;
             }
-        };
-        
-        for account in accounts {
-            let statuses = self.statuses.clone();
-            let stop_signal = self.stop_signal.clone();
-            let api = api.clone();
-            let cache = cache.clone();
-            let tree = tree.clone();
-            let acc = account.clone();
-            let all_accounts = self.all_accounts.clone();
-
-            handle.spawn(async move {
-                statuses.write().insert(acc.clone(), SyncStatus::Idle);
-                
-                let file_count = cache.get_file_count_for_account(&acc).unwrap_or(0);
-                let mut current_token = cache.get_change_token(&acc).ok().flatten().unwrap_or_default();
-
-                if file_count == 0 || current_token.is_empty() {
-                    let accs = all_accounts.read().clone();
-                    if let Err(e) = Self::execute_full_sync(&acc, api.clone(), cache.clone(), tree.clone(), &accs).await {
-                        statuses.write().insert(acc.clone(), SyncStatus::Error(e.to_string()));
-                        return;
-                    }
-                    current_token = cache.get_change_token(&acc).ok().flatten().unwrap_or_default();
+            self.emit_status(&account, SyncStatus::Syncing);
+            let wait = match self.sync_once(&account, &cancel).await {
+                Ok(()) => {
+                    failures = 0;
+                    self.emit_status(&account, SyncStatus::Idle);
+                    let base = self.interval_secs.load(Ordering::SeqCst);
+                    Duration::from_secs(base) + Duration::from_millis(rand::random::<u64>() % 3000)
                 }
-
-                loop {
-                    if stop_signal.load(Ordering::SeqCst) {
-                        break;
+                Err(CloudError::Cancelled) => break,
+                Err(e) if e.needs_reauth() => {
+                    warn!("{account}: sign-in required ({e})");
+                    self.emit_status(&account, SyncStatus::NeedsReauth);
+                    // Nothing to do until the user reconnects (which kicks us).
+                    tokio::select! {
+                        _ = cancel.cancelled() => break,
+                        _ = kick.notified() => {}
                     }
-
-                    statuses.write().insert(acc.clone(), SyncStatus::Syncing);
-
-                    match api.get_changes(&acc, &current_token).await {
-                        Ok((changes, new_token)) => {
-                            for change in changes {
-                                if change.removed {
-                                    let _ = cache.remove_file(&change.file_id, &acc);
-                                } else if let Some(file) = change.file {
-                                    let _ = cache.upsert_file(&file, &acc);
-                                }
-                            }
-                            
-                            if current_token != new_token {
-                                current_token = new_token;
-                                let _ = cache.save_change_token(&acc, &current_token);
-                                
-                                let accs = all_accounts.read().clone();
-                                let _ = tree.rebuild_from_cache(&cache, &accs);
-                            }
-                            statuses.write().insert(acc.clone(), SyncStatus::Idle);
-                        },
-                        Err(CloudError::Auth(_)) => {
-                            statuses.write().insert(acc.clone(), SyncStatus::NeedsReauth);
-                        },
-                        Err(CloudError::Network(_)) => {
-                            statuses.write().insert(acc.clone(), SyncStatus::Offline);
-                        },
-                        Err(e) => {
-                            statuses.write().insert(acc.clone(), SyncStatus::Error(e.to_string()));
-                        }
-                    }
-
-                    sleep(Duration::from_secs(interval)).await;
+                    continue;
                 }
+                Err(e) => {
+                    failures += 1;
+                    warn!("{account}: sync failed ({e}); attempt {failures}");
+                    let status = match &e {
+                        CloudError::Network(_) => SyncStatus::Offline,
+                        other => SyncStatus::Error(other.to_string()),
+                    };
+                    self.emit_status(&account, status);
+                    let base = self.interval_secs.load(Ordering::SeqCst);
+                    Duration::from_secs((5u64 << failures.min(6)).min(base.max(300)))
+                }
+            };
+            tokio::select! {
+                _ = cancel.cancelled() => break,
+                _ = kick.notified() => {}
+                _ = tokio::time::sleep(wait) => {}
+            }
+        }
+        info!("sync loop for {account} stopped");
+    }
+
+    async fn sync_once(self: &Arc<Self>, account: &str, cancel: &CancellationToken) -> Result<(), CloudError> {
+        match self.cache.get_change_token(account)? {
+            None => self.full_sync(account, cancel).await,
+            Some(token) => self.incremental_sync(account, token, cancel).await,
+        }
+    }
+
+    async fn full_sync(self: &Arc<Self>, account: &str, cancel: &CancellationToken) -> Result<(), CloudError> {
+        info!("{account}: full sync");
+        // Take the change token BEFORE listing: anything modified while we
+        // list is then replayed by the next incremental sync instead of lost.
+        let start_token = self.api.get_start_page_token(account).await?;
+        let first_time = self.cache.get_file_count_for_account(account)? == 0;
+
+        let mut collected: Vec<DriveFile> = Vec::new();
+        let mut page_token: Option<String> = None;
+        let mut total = 0usize;
+        let mut pages = 0u32;
+        loop {
+            if cancel.is_cancelled() {
+                return Err(CloudError::Cancelled);
+            }
+            let (files, next) = self.api.list_files_page(account, page_token.as_deref()).await?;
+            let files: Vec<DriveFile> = files.into_iter().filter(|f| f.owned_by_me && !f.trashed).collect();
+            total += files.len();
+            pages += 1;
+            if first_time {
+                // Show results as they arrive on a first sync.
+                self.cache.upsert_files(account, &files)?;
+                if pages % 2 == 0 {
+                    self.rebuild().await;
+                }
+            } else {
+                collected.extend(files);
+            }
+            let _ = self.events.send(EngineEvent::Sync {
+                account: account.to_string(),
+                status: SyncStatus::Syncing,
+                files_indexed: total as u64,
             });
-        }
-        Ok(())
-    }
-
-    pub fn stop(&self) {
-        self.stop_signal.store(true, Ordering::SeqCst);
-    }
-
-    pub async fn force_sync(&self, account: &str, api: Arc<DriveClient>, cache: Arc<MetadataCache>, tree: Arc<VirtualTree>, all_accounts: &[String]) -> Result<(), CloudError> {
-        self.statuses.write().insert(account.to_string(), SyncStatus::Syncing);
-        let res = self.force_sync_inner(account, api, cache, tree, all_accounts).await;
-        match &res {
-            Ok(_) => { self.statuses.write().insert(account.to_string(), SyncStatus::Idle); },
-            Err(CloudError::Auth(_)) => { self.statuses.write().insert(account.to_string(), SyncStatus::NeedsReauth); },
-            Err(e) => { self.statuses.write().insert(account.to_string(), SyncStatus::Error(e.to_string())); },
-        }
-        res
-    }
-
-    async fn force_sync_inner(&self, account: &str, api: Arc<DriveClient>, cache: Arc<MetadataCache>, tree: Arc<VirtualTree>, all_accounts: &[String]) -> Result<(), CloudError> {
-        let count = cache.get_file_count_for_account(account).unwrap_or(0);
-        let current_token = cache.get_change_token(account)?.unwrap_or_default();
-        if current_token.is_empty() || count == 0 {
-            return Self::execute_full_sync(account, api, cache, tree, all_accounts).await;
-        }
-
-        let (changes, new_token) = api.get_changes(account, &current_token).await?;
-        for change in changes {
-            if change.removed {
-                cache.remove_file(&change.file_id, account)?;
-            } else if let Some(file) = change.file {
-                cache.upsert_file(&file, account)?;
+            match next {
+                Some(n) => page_token = Some(n),
+                None => break,
             }
         }
-        cache.save_change_token(account, &new_token)?;
-        tree.rebuild_from_cache(&cache, all_accounts)?;
+        if first_time {
+            self.cache.save_change_token(account, &start_token)?;
+        } else {
+            self.cache.replace_account_files(account, &collected, &start_token)?;
+        }
+        self.rebuild().await;
+        info!("{account}: indexed {total} files");
         Ok(())
     }
 
-    pub async fn full_sync(&self, account: &str, api: Arc<DriveClient>, cache: Arc<MetadataCache>, tree: Arc<VirtualTree>, all_accounts: &[String]) -> Result<(), CloudError> {
-        self.statuses.write().insert(account.to_string(), SyncStatus::Syncing);
-        let res = Self::execute_full_sync(account, api, cache, tree, all_accounts).await;
-        match &res {
-            Ok(_) => { self.statuses.write().insert(account.to_string(), SyncStatus::Idle); },
-            Err(CloudError::Auth(_)) => { self.statuses.write().insert(account.to_string(), SyncStatus::NeedsReauth); },
-            Err(e) => { self.statuses.write().insert(account.to_string(), SyncStatus::Error(e.to_string())); },
+    async fn incremental_sync(
+        self: &Arc<Self>,
+        account: &str,
+        mut token: String,
+        cancel: &CancellationToken,
+    ) -> Result<(), CloudError> {
+        let mut changed = 0usize;
+        loop {
+            if cancel.is_cancelled() {
+                return Err(CloudError::Cancelled);
+            }
+            let page = match self.api.get_changes_page(account, &token).await {
+                Ok(p) => p,
+                // The saved token is no longer valid → start over.
+                Err(CloudError::Api(e)) if matches!(e.status, 400 | 404 | 410) => {
+                    warn!("{account}: change token rejected ({e}); doing a full sync");
+                    self.cache.clear_change_token(account)?;
+                    return self.full_sync(account, cancel).await;
+                }
+                Err(e) => return Err(e),
+            };
+            let next_token = page
+                .next_page_token
+                .clone()
+                .or_else(|| page.new_start_page_token.clone())
+                .unwrap_or_else(|| token.clone());
+            if page.changes.is_empty() {
+                self.cache.save_change_token(account, &next_token)?;
+            } else {
+                changed += self.cache.apply_changes(account, &page.changes, &next_token)?;
+            }
+            token = next_token;
+            if page.next_page_token.is_none() {
+                break;
+            }
         }
-        res
-    }
-
-    pub async fn execute_full_sync(account: &str, api: Arc<DriveClient>, cache: Arc<MetadataCache>, tree: Arc<VirtualTree>, all_accounts: &[String]) -> Result<(), CloudError> {
-        let files = api.list_all_files(account).await?;
-        cache.clear_account(account)?;
-        for file in files {
-            cache.upsert_file(&file, account)?;
+        if changed > 0 {
+            info!("{account}: applied {changed} change(s)");
+            self.rebuild().await;
         }
-        let token = api.get_start_page_token(account).await?;
-        cache.save_change_token(account, &token)?;
-        tree.rebuild_from_cache(&cache, all_accounts)?;
         Ok(())
-    }
-
-    pub fn get_status(&self, account: &str) -> SyncStatus {
-        self.statuses.read().get(account).cloned().unwrap_or(SyncStatus::Idle)
-    }
-
-    pub fn get_all_statuses(&self) -> HashMap<String, SyncStatus> {
-        self.statuses.read().clone()
     }
 }

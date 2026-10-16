@@ -1,8 +1,11 @@
+//! On-disk LRU cache for downloaded content and thumbnails.
+
 use crate::error::CloudError;
 use serde::{Deserialize, Serialize};
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::SystemTime;
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -15,145 +18,175 @@ pub struct CacheMeta {
 
 pub struct ContentCache {
     cache_dir: PathBuf,
-    max_size: u64,
+    max_size: AtomicU64,
+    /// Tracked incrementally so `put` does not re-scan the directory.
+    current: AtomicU64,
+}
+
+fn now_secs() -> u64 {
+    SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs()
+}
+
+fn io<E: std::fmt::Display>(e: E) -> CloudError {
+    CloudError::Io(e.to_string())
 }
 
 impl ContentCache {
     pub fn new<P: AsRef<Path>>(cache_dir: P, max_size: u64) -> Result<Self, CloudError> {
         let path = cache_dir.as_ref().to_path_buf();
-        fs::create_dir_all(&path).map_err(|e| CloudError::Cache(e.to_string()))?;
-        Ok(Self { cache_dir: path, max_size })
+        fs::create_dir_all(&path).map_err(io)?;
+        let c = Self { cache_dir: path, max_size: AtomicU64::new(max_size), current: AtomicU64::new(0) };
+        c.current.store(c.scan_size(), Ordering::SeqCst);
+        Ok(c)
     }
 
-    fn file_path(&self, file_id: &str) -> PathBuf {
-        let mut hasher = Sha256::new();
-        hasher.update(file_id.as_bytes());
-        let hash = hex::encode(hasher.finalize());
-        self.cache_dir.join(hash)
+    pub fn set_max_size(&self, bytes: u64) {
+        self.max_size.store(bytes, Ordering::SeqCst);
     }
 
-    fn meta_path(&self, file_id: &str) -> PathBuf {
-        let mut path = self.file_path(file_id);
-        path.set_extension("meta");
-        path
+    fn scan_size(&self) -> u64 {
+        fs::read_dir(&self.cache_dir)
+            .map(|rd| rd.flatten().filter_map(|e| e.metadata().ok()).map(|m| m.len()).sum())
+            .unwrap_or(0)
     }
 
-    pub fn get(&self, file_id: &str, expected_md5: Option<&str>, expected_mtime: &str) -> Option<PathBuf> {
-        let fpath = self.file_path(file_id);
-        let mpath = self.meta_path(file_id);
+    fn file_path(&self, key: &str) -> PathBuf {
+        self.cache_dir.join(hex::encode(Sha256::digest(key.as_bytes())))
+    }
 
-        if !fpath.exists() || !mpath.exists() {
+    fn meta_path(&self, key: &str) -> PathBuf {
+        self.file_path(key).with_extension("meta")
+    }
+
+    pub fn get(&self, key: &str, expected_md5: Option<&str>, expected_mtime: &str) -> Option<PathBuf> {
+        let (fpath, mpath) = (self.file_path(key), self.meta_path(key));
+        if !fpath.exists() {
             return None;
         }
-
-        if let Ok(meta_json) = fs::read_to_string(&mpath) {
-            if let Ok(mut meta) = serde_json::from_str::<CacheMeta>(&meta_json) {
-                if meta.mtime == expected_mtime && (expected_md5.is_none() || expected_md5.unwrap() == meta.md5) {
-                    meta.last_access = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs();
-                    let _ = fs::write(&mpath, serde_json::to_string(&meta).unwrap_or_default());
-                    return Some(fpath);
-                }
-            }
+        let mut meta: CacheMeta = serde_json::from_str(&fs::read_to_string(&mpath).ok()?).ok()?;
+        let md5_ok = expected_md5.map_or(true, |m| m == meta.md5);
+        if meta.mtime != expected_mtime || !md5_ok {
+            return None;
         }
-        None
+        meta.last_access = now_secs();
+        let _ = fs::write(&mpath, serde_json::to_string(&meta).unwrap_or_default());
+        Some(fpath)
     }
 
-    pub fn put(&self, file_id: &str, data: &[u8], md5: &str, mtime: &str) -> Result<PathBuf, CloudError> {
+    /// Convenience: cached bytes for `key` if present and fresh.
+    pub fn get_bytes(&self, key: &str, expected_mtime: &str) -> Option<Vec<u8>> {
+        fs::read(self.get(key, None, expected_mtime)?).ok()
+    }
+
+    pub fn put(&self, key: &str, data: &[u8], md5: &str, mtime: &str) -> Result<PathBuf, CloudError> {
         let size = data.len() as u64;
-        self.evict_to_fit(size)?;
+        let meta = CacheMeta { md5: md5.into(), mtime: mtime.into(), size, last_access: now_secs() };
+        let meta_json = serde_json::to_string(&meta).unwrap_or_default();
+        // The sidecar .meta file counts toward the budget too.
+        self.evict_to_fit(size + meta_json.len() as u64)?;
+        let (fpath, mpath) = (self.file_path(key), self.meta_path(key));
+        let old = fs::metadata(&fpath).map(|m| m.len()).unwrap_or(0);
 
-        let fpath = self.file_path(file_id);
-        let mpath = self.meta_path(file_id);
+        // Write to a temp file first so a crash never leaves a truncated entry.
+        let tmp = fpath.with_extension("part");
+        fs::write(&tmp, data).map_err(io)?;
+        fs::rename(&tmp, &fpath).map_err(io)?;
+        fs::write(&mpath, &meta_json).map_err(io)?;
 
-        fs::write(&fpath, data).map_err(|e| CloudError::Io(e.to_string()))?;
-
-        let meta = CacheMeta {
-            md5: md5.to_string(),
-            mtime: mtime.to_string(),
-            size,
-            last_access: SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs(),
-        };
-        fs::write(&mpath, serde_json::to_string(&meta).unwrap_or_default()).map_err(|e| CloudError::Io(e.to_string()))?;
-
+        let added = size + meta_json.len() as u64;
+        self.current.fetch_add(added.saturating_sub(old), Ordering::SeqCst);
         Ok(fpath)
     }
 
-    pub fn read_range(&self, file_id: &str, offset: u64, length: u64) -> Result<Option<Vec<u8>>, CloudError> {
-        let fpath = self.file_path(file_id);
+    pub fn read_range(&self, key: &str, offset: u64, length: u64) -> Result<Option<Vec<u8>>, CloudError> {
+        use std::io::{Read, Seek, SeekFrom};
+        let fpath = self.file_path(key);
         if !fpath.exists() {
             return Ok(None);
         }
-
-        use std::io::{Read, Seek, SeekFrom};
-        let mut file = fs::File::open(&fpath).map_err(|e| CloudError::Io(e.to_string()))?;
-        file.seek(SeekFrom::Start(offset)).map_err(|e| CloudError::Io(e.to_string()))?;
-        
-        let mut buf = vec![0; length as usize];
-        let bytes_read = file.read(&mut buf).map_err(|e| CloudError::Io(e.to_string()))?;
-        buf.truncate(bytes_read);
-        
+        let mut file = fs::File::open(&fpath).map_err(io)?;
+        file.seek(SeekFrom::Start(offset)).map_err(io)?;
+        let mut buf = Vec::new();
+        file.take(length).read_to_end(&mut buf).map_err(io)?;
         Ok(Some(buf))
     }
 
-    pub fn has_valid(&self, file_id: &str, md5: Option<&str>, mtime: &str) -> bool {
-        self.get(file_id, md5, mtime).is_some()
+    pub fn has_valid(&self, key: &str, md5: Option<&str>, mtime: &str) -> bool {
+        self.get(key, md5, mtime).is_some()
     }
 
     pub fn total_size(&self) -> Result<u64, CloudError> {
-        let mut total = 0;
-        if let Ok(entries) = fs::read_dir(&self.cache_dir) {
-            for entry in entries.flatten() {
-                if let Ok(meta) = entry.metadata() {
-                    total += meta.len();
-                }
-            }
-        }
-        Ok(total)
+        Ok(self.current.load(Ordering::SeqCst))
     }
 
     pub fn evict_to_fit(&self, needed_bytes: u64) -> Result<(), CloudError> {
-        let mut current_size = self.total_size()?;
-        if current_size + needed_bytes <= self.max_size {
+        let max = self.max_size.load(Ordering::SeqCst);
+        if self.current.load(Ordering::SeqCst) + needed_bytes <= max {
             return Ok(());
         }
-
         let mut metas = Vec::new();
-        if let Ok(entries) = fs::read_dir(&self.cache_dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.extension().and_then(|s| s.to_str()) == Some("meta") {
-                    if let Ok(meta_json) = fs::read_to_string(&path) {
-                        if let Ok(meta) = serde_json::from_str::<CacheMeta>(&meta_json) {
-                            metas.push((path, meta));
-                        }
+        if let Ok(rd) = fs::read_dir(&self.cache_dir) {
+            for e in rd.flatten() {
+                let p = e.path();
+                if p.extension().and_then(|s| s.to_str()) == Some("meta") {
+                    if let Some(m) = fs::read_to_string(&p).ok().and_then(|s| serde_json::from_str::<CacheMeta>(&s).ok()) {
+                        metas.push((p, m));
                     }
                 }
             }
         }
-
         metas.sort_by_key(|(_, m)| m.last_access);
-
         for (mpath, meta) in metas {
-            let mut fpath = mpath.clone();
-            fpath.set_extension("");
-            
+            let fpath = mpath.with_extension("");
+            let freed = fs::metadata(&fpath).map(|m| m.len()).unwrap_or(0)
+                + fs::metadata(&mpath).map(|m| m.len()).unwrap_or(0);
             let _ = fs::remove_file(&fpath);
             let _ = fs::remove_file(&mpath);
-            
-            current_size = current_size.saturating_sub(meta.size);
-            if current_size + needed_bytes <= self.max_size {
+            let _ = meta;
+            let cur = self.current.load(Ordering::SeqCst);
+            self.current.store(cur.saturating_sub(freed), Ordering::SeqCst);
+            if self.current.load(Ordering::SeqCst) + needed_bytes <= max {
                 break;
             }
         }
-
         Ok(())
     }
 
     pub fn clear(&self) -> Result<(), CloudError> {
         if self.cache_dir.exists() {
-            fs::remove_dir_all(&self.cache_dir).map_err(|e| CloudError::Io(e.to_string()))?;
-            fs::create_dir_all(&self.cache_dir).map_err(|e| CloudError::Io(e.to_string()))?;
+            fs::remove_dir_all(&self.cache_dir).map_err(io)?;
         }
+        fs::create_dir_all(&self.cache_dir).map_err(io)?;
+        self.current.store(0, Ordering::SeqCst);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn put_get_range_and_staleness() {
+        let d = tempfile::tempdir().unwrap();
+        let c = ContentCache::new(d.path(), 1 << 20).unwrap();
+        c.put("k", b"hello world", "md5", "t1").unwrap();
+        assert_eq!(c.get_bytes("k", "t1").unwrap(), b"hello world");
+        assert!(c.get_bytes("k", "t2").is_none(), "changed mtime invalidates");
+        assert_eq!(c.read_range("k", 6, 100).unwrap().unwrap(), b"world");
+        assert!(c.read_range("missing", 0, 1).unwrap().is_none());
+    }
+
+    #[test]
+    fn lru_eviction_keeps_size_bounded() {
+        let d = tempfile::tempdir().unwrap();
+        let c = ContentCache::new(d.path(), 1000).unwrap();
+        for i in 0..20 {
+            c.put(&format!("k{i}"), &[0u8; 200], "", "t").unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(c.total_size().unwrap() <= 1000, "size {}", c.total_size().unwrap());
+        assert!(c.get_bytes("k19", "t").is_some(), "newest entry survives");
+        assert!(c.get_bytes("k0", "t").is_none(), "oldest entry evicted");
     }
 }

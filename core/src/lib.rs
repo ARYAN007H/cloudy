@@ -1,4 +1,6 @@
 pub mod error;
+pub mod endpoints;
+pub mod store;
 pub mod config;
 pub mod logging;
 pub mod types;
@@ -15,4 +17,6 @@ pub mod engine;
 pub use engine::CoreEngine;
 pub use error::{CloudError, AuthError, ApiError};
 pub use config::{AppConfig, UploadPolicy};
+pub use endpoints::Endpoints;
+pub use store::{Backend as SecretBackend, SecretStore};
 pub use types::*;
