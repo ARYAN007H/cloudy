@@ -117,16 +117,28 @@ fn safe_local_name(name: &str) -> String {
     if s.is_empty() || s == "." || s == ".." { "_".into() } else { s }
 }
 
-fn unique_path(dir: &Path, name: &str) -> PathBuf {
-    let first = dir.join(name);
-    if !first.exists() {
-        return first;
-    }
+/// Atomically claim a free name in `dir`: files are created empty (`O_EXCL`),
+/// folders are created. Two transfers can therefore never be handed the same
+/// path, even when they are planned back-to-back or concurrently.
+fn reserve_unique(dir: &Path, name: &str, is_dir: bool) -> std::io::Result<PathBuf> {
     let (stem, ext) = match name.rfind('.') {
-        Some(i) if i > 0 => (&name[..i], &name[i..]),
+        Some(i) if i > 0 && !is_dir => (&name[..i], &name[i..]),
         _ => (name, ""),
     };
-    (1..10_000).map(|n| dir.join(format!("{stem} ({n}){ext}"))).find(|p| !p.exists()).unwrap_or(first)
+    for n in 0..10_000u32 {
+        let candidate = if n == 0 { dir.join(name) } else { dir.join(format!("{stem} ({n}){ext}")) };
+        let claimed = if is_dir {
+            std::fs::create_dir(&candidate)
+        } else {
+            std::fs::OpenOptions::new().write(true).create_new(true).open(&candidate).map(|_| ())
+        };
+        match claimed {
+            Ok(()) => return Ok(candidate),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    Err(std::io::Error::new(std::io::ErrorKind::AlreadyExists, "too many files with the same name"))
 }
 
 fn sniff_image_mime(b: &[u8]) -> Option<&'static str> {
@@ -856,25 +868,46 @@ impl CoreEngine {
     pub async fn download_node(&self, node_id: &str, dest_dir: PathBuf) -> Result<Vec<String>, CloudError> {
         let root = self.node(node_id)?;
         let handle = self.runtime()?;
-        let mut files: Vec<(VirtualNode, PathBuf)> = Vec::new();
-        let mut stack: Vec<(VirtualNode, PathBuf)> = vec![(root, dest_dir)];
-        while let Some((node, dir)) = stack.pop() {
-            if node.is_dir {
-                let sub = unique_path(&dir, &safe_local_name(&node.display_name));
-                tokio::fs::create_dir_all(&sub).await?;
-                for child in self.tree.get_children(&node.id) {
-                    stack.push((child, sub.clone()));
+        tokio::fs::create_dir_all(&dest_dir).await?;
+
+        // Plan everything first. Every output name is claimed atomically here
+        // (before any task starts); if planning fails half-way the claims are undone.
+        struct Planned {
+            node: VirtualNode,
+            account: String,
+            file: DriveFile,
+            target: PathBuf,
+        }
+        let mut planned: Vec<Planned> = Vec::new();
+        let mut claimed_files: Vec<PathBuf> = Vec::new();
+        let plan: Result<(), CloudError> = async {
+            let mut stack: Vec<(VirtualNode, PathBuf)> = vec![(root, dest_dir)];
+            while let Some((node, dir)) = stack.pop() {
+                if node.is_dir {
+                    let sub = reserve_unique(&dir, &safe_local_name(&node.display_name), true)?;
+                    for child in self.tree.get_children(&node.id) {
+                        stack.push((child, sub.clone()));
+                    }
+                } else {
+                    let (account, drive_id) = self.source_of(&node)?;
+                    let file = self.row(&account, &drive_id)?;
+                    let target = reserve_unique(&dir, &safe_local_name(&node.display_name), false)?;
+                    claimed_files.push(target.clone());
+                    planned.push(Planned { node, account, file, target });
                 }
-            } else {
-                let target = unique_path(&dir, &safe_local_name(&node.display_name));
-                files.push((node, target));
             }
+            Ok(())
+        }
+        .await;
+        if let Err(e) = plan {
+            for f in &claimed_files {
+                let _ = std::fs::remove_file(f);
+            }
+            return Err(e);
         }
 
         let mut ids = Vec::new();
-        for (node, target) in files {
-            let (account, drive_id) = self.source_of(&node)?;
-            let file = self.row(&account, &drive_id)?;
+        for Planned { node, account, file, target } in planned {
             let id = uuid::Uuid::new_v4().to_string();
             let token = self.transfers.register(TransferInfo {
                 id: id.clone(),
@@ -890,13 +923,19 @@ impl CoreEngine {
             handle.spawn(async move {
                 let permit = tokio::select! { p = sem.acquire_owned() => p.ok(), _ = token.cancelled() => None };
                 if permit.is_none() {
+                    let _ = tokio::fs::remove_file(&target).await; // release the claimed name
                     return transfers.set_status(&tid, TransferStatus::Cancelled);
                 }
                 transfers.set_status(&tid, TransferStatus::InProgress);
                 match run_download(&api, &transfers, &tid, &account, &file, node.is_workspace_file, &target, &token).await {
                     Ok(()) => transfers.set_status(&tid, TransferStatus::Completed),
-                    Err(CloudError::Cancelled) => transfers.set_status(&tid, TransferStatus::Cancelled),
-                    Err(e) => transfers.set_status(&tid, TransferStatus::Failed(e.to_string())),
+                    Err(e) => {
+                        let _ = tokio::fs::remove_file(&target).await; // don't leave an empty placeholder behind
+                        match e {
+                            CloudError::Cancelled => transfers.set_status(&tid, TransferStatus::Cancelled),
+                            e => transfers.set_status(&tid, TransferStatus::Failed(e.to_string())),
+                        }
+                    }
                 }
             });
             ids.push(id);
@@ -1254,11 +1293,55 @@ mod tests {
     }
 
     #[test]
-    fn unique_path_does_not_overwrite() {
+    fn reserve_unique_never_hands_out_the_same_name_twice() {
         let d = tempfile::tempdir().unwrap();
         std::fs::write(d.path().join("a.txt"), "x").unwrap();
-        assert_eq!(unique_path(d.path(), "a.txt"), d.path().join("a (1).txt"));
-        assert_eq!(unique_path(d.path(), "new.txt"), d.path().join("new.txt"));
+        // Sequential: existing file is skipped, then each reservation is distinct.
+        let p1 = reserve_unique(d.path(), "a.txt", false).unwrap();
+        let p2 = reserve_unique(d.path(), "a.txt", false).unwrap();
+        assert_eq!(p1, d.path().join("a (1).txt"));
+        assert_eq!(p2, d.path().join("a (2).txt"));
+        assert!(p1.exists() && p2.exists(), "names are claimed immediately, not later");
+        assert_eq!(reserve_unique(d.path(), "new.txt", false).unwrap(), d.path().join("new.txt"));
+        // Folders get the same treatment (no extension splitting).
+        assert_eq!(reserve_unique(d.path(), "Trip.2024", true).unwrap(), d.path().join("Trip.2024"));
+        assert_eq!(reserve_unique(d.path(), "Trip.2024", true).unwrap(), d.path().join("Trip.2024 (1)"));
+    }
+
+    #[test]
+    fn reserve_unique_is_race_free_across_threads() {
+        let d = tempfile::tempdir().unwrap();
+        let dir = d.path().to_path_buf();
+        let handles: Vec<_> = (0..16)
+            .map(|_| {
+                let dir = dir.clone();
+                std::thread::spawn(move || reserve_unique(&dir, "same.bin", false).unwrap())
+            })
+            .collect();
+        let mut got: Vec<PathBuf> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+        got.sort();
+        got.dedup();
+        assert_eq!(got.len(), 16, "16 concurrent claims must all get distinct paths");
+    }
+
+    #[test]
+    fn start_sync_needs_a_runtime_until_one_is_set() {
+        // A front-end that builds its own runtime (like the FUSE mount) must call set_runtime.
+        let d = tempfile::tempdir().unwrap();
+        let store = Arc::new(SecretStore::file_backed(d.path().join("cfg")));
+        store.set_refresh_token("a@x.com", "rt").unwrap();
+        let engine = CoreEngine::with_parts(
+            AppConfig::default(),
+            Endpoints::local("http://127.0.0.1:1"),
+            store,
+            EngineDirs { data: d.path().join("data"), cache: d.path().join("cache") },
+        )
+        .unwrap();
+        assert!(engine.start_sync().is_err(), "no runtime known yet");
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        engine.set_runtime(rt.handle().clone());
+        engine.start_sync().expect("works once the runtime is provided");
+        engine.stop_sync();
     }
 
     #[test]

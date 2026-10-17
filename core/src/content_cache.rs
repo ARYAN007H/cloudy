@@ -82,10 +82,15 @@ impl ContentCache {
         let size = data.len() as u64;
         let meta = CacheMeta { md5: md5.into(), mtime: mtime.into(), size, last_access: now_secs() };
         let meta_json = serde_json::to_string(&meta).unwrap_or_default();
-        // The sidecar .meta file counts toward the budget too.
-        self.evict_to_fit(size + meta_json.len() as u64)?;
+        let added = size + meta_json.len() as u64;
         let (fpath, mpath) = (self.file_path(key), self.meta_path(key));
-        let old = fs::metadata(&fpath).map(|m| m.len()).unwrap_or(0);
+        let on_disk = |p: &Path| fs::metadata(p).map(|m| m.len()).unwrap_or(0);
+
+        // Replacing an entry frees its old data file *and* its old sidecar, so
+        // only the difference needs room. (The sidecar counts toward the budget too.)
+        self.evict_to_fit(added.saturating_sub(on_disk(&fpath) + on_disk(&mpath)))?;
+        // Re-measure: eviction may just have removed this very entry.
+        let old = on_disk(&fpath) + on_disk(&mpath);
 
         // Write to a temp file first so a crash never leaves a truncated entry.
         let tmp = fpath.with_extension("part");
@@ -93,8 +98,11 @@ impl ContentCache {
         fs::rename(&tmp, &fpath).map_err(io)?;
         fs::write(&mpath, &meta_json).map_err(io)?;
 
-        let added = size + meta_json.len() as u64;
-        self.current.fetch_add(added.saturating_sub(old), Ordering::SeqCst);
+        if added >= old {
+            self.current.fetch_add(added - old, Ordering::SeqCst);
+        } else {
+            self.current.fetch_sub(old - added, Ordering::SeqCst);
+        }
         Ok(fpath)
     }
 
@@ -121,6 +129,12 @@ impl ContentCache {
 
     pub fn evict_to_fit(&self, needed_bytes: u64) -> Result<(), CloudError> {
         let max = self.max_size.load(Ordering::SeqCst);
+        if self.current.load(Ordering::SeqCst) + needed_bytes <= max {
+            return Ok(());
+        }
+        // Looks full: re-measure the directory first so a drifted counter can
+        // never cause needless eviction.
+        self.current.store(self.scan_size(), Ordering::SeqCst);
         if self.current.load(Ordering::SeqCst) + needed_bytes <= max {
             return Ok(());
         }
@@ -175,6 +189,35 @@ mod tests {
         assert!(c.get_bytes("k", "t2").is_none(), "changed mtime invalidates");
         assert_eq!(c.read_range("k", 6, 100).unwrap().unwrap(), b"world");
         assert!(c.read_range("missing", 0, 1).unwrap().is_none());
+    }
+
+    #[test]
+    fn size_counter_matches_disk_when_entries_are_overwritten() {
+        let d = tempfile::tempdir().unwrap();
+        let c = ContentCache::new(d.path(), 1 << 20).unwrap();
+        let on_disk = || -> u64 {
+            fs::read_dir(d.path()).unwrap().flatten().map(|e| e.metadata().unwrap().len()).sum()
+        };
+        for i in 0..60 {
+            // same key, changing sizes (grow and shrink) plus a few other keys
+            c.put("same", &vec![1u8; 50 + (i * 37) % 400], "md5", &format!("t{i}")).unwrap();
+            if i % 7 == 0 {
+                c.put(&format!("other{i}"), &[2u8; 30], "", "t").unwrap();
+            }
+            assert_eq!(c.total_size().unwrap(), on_disk(), "counter drifted after overwrite #{i}");
+        }
+    }
+
+    #[test]
+    fn overwriting_does_not_trigger_needless_eviction() {
+        let d = tempfile::tempdir().unwrap();
+        // Budget fits exactly one ~300-byte entry (data + sidecar), not two.
+        let c = ContentCache::new(d.path(), 400).unwrap();
+        c.put("a", &[0u8; 250], "", "t0").unwrap();
+        for i in 1..30 {
+            c.put("a", &[0u8; 250], "", &format!("t{i}")).unwrap();
+        }
+        assert!(c.get_bytes("a", "t29").is_some(), "rewriting the only entry must not evict it");
     }
 
     #[test]
