@@ -390,14 +390,19 @@ impl CoreEngine {
                     if e.needs_reauth() {
                         sync = SyncStatus::NeedsReauth;
                     } else {
-                        error = Some(e.to_string());
+                        error = Some(match &e {
+                            CloudError::Network(_) => {
+                                "Can't reach Google right now. Cloudy keeps retrying and shows your last known data.".to_string()
+                            }
+                            other => other.to_string(),
+                        });
                     }
                     if let Some((_, n, q)) = &cached {
                         name = n.clone();
                         quota = q.clone();
                     }
                 }
-                Err(_) => error = Some("Google did not respond in time".into()),
+                Err(_) => error = Some("Google did not respond in time. Cloudy will keep trying.".into()),
             }
         }
         AccountSummary { email: email.to_string(), display_name: name, quota, sync, files_indexed, error }

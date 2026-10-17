@@ -37,3 +37,6 @@ logs/
 # Operating system files
 .DS_Store
 Thumbs.db
+
+# Frontend test deps
+node_modules/

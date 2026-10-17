@@ -1,0 +1,8 @@
+{
+  "name": "cloudy-frontend-tests",
+  "private": true,
+  "type": "module",
+  "description": "Drives the real frontend in jsdom against a mocked Tauri backend.",
+  "scripts": { "test": "node smoke.mjs main && node smoke.mjs nocreds" },
+  "devDependencies": { "jsdom": "^26.0.0" }
+}

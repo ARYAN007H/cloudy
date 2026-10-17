@@ -111,11 +111,13 @@ function poolTotals() {
   return { limit, usage, free: Math.max(0, limit - usage), unlimited, n };
 }
 
+const anyOffline = () => S.accounts.some((a) => ['Offline', 'Error'].includes(accountState(a).key) || a.error);
+
 function renderPoolMeter() {
   const t = poolTotals();
   const el = $('#pool-meter');
   if (!S.accounts.length) { el.innerHTML = `<span class="txt">Add Google accounts to build your pool.</span>`; return; }
-  if (!t.n) { el.innerHTML = `<span class="txt">Loading storage…</span>`; return; }
+  if (!t.n) { el.innerHTML = `<span class="txt">${anyOffline() ? 'Storage info unavailable while offline' : 'Loading storage…'}</span>`; return; }
   const pct = t.limit ? Math.min(100, (t.usage / t.limit) * 100) : 0;
   el.innerHTML = `<span class="txt"><strong>${t.unlimited ? 'Unlimited' : fmtBytes(t.free) + ' free'}</strong>
     ${t.unlimited ? '' : `of ${fmtBytes(t.limit)} · `}${plural(S.accounts.length, 'account')}</span>
@@ -435,7 +437,7 @@ function renderAccounts() {
   const pct = t.limit ? Math.min(100, (t.usage / t.limit) * 100) : 0;
   const hero = S.accounts.length ? `<section class="pool-hero">
       <div class="small" style="opacity:.8">Your combined storage pool</div>
-      <div class="big-num">${t.n ? (t.unlimited ? 'Unlimited' : fmtBytes(t.free) + ' free') : '…'}</div>
+      <div class="big-num">${t.n ? (t.unlimited ? 'Unlimited' : fmtBytes(t.free) + ' free') : (anyOffline() ? 'Offline' : '…')}</div>
       <div class="bar"><i style="width:${pct}%"></i></div>
       <div class="small" style="opacity:.85">${t.n ? `${fmtBytes(t.usage)} used${t.limit ? ` of ${fmtBytes(t.limit)}` : ''} · ` : ''}${plural(S.accounts.length, 'account')}. Each file is stored whole in one account – the biggest file you can add is the free space of your emptiest account.</div>
     </section>` : '';
@@ -448,7 +450,7 @@ function renderAccounts() {
         <div class="grow"><div class="ellipsis" style="font-weight:600">${esc(a.display_name || a.email.split('@')[0])}</div><div class="small muted ellipsis">${esc(a.email)}</div></div>${statusChip(a)}</div>
       ${q ? `<div><div class="bar ${qp > 90 ? 'danger' : qp > 75 ? 'warn' : ''}"><i style="width:${qp}%"></i></div>
         <div class="small muted" style="margin-top:6px" title="Usage includes Gmail and Google Photos">${fmtBytes(q.usage)} used${q.limit ? ` of ${fmtBytes(q.limit)}` : ''}${q.limit ? ` · ${fmtBytes(q.limit - q.usage)} free` : ''}</div></div>`
-        : `<div class="small muted">${a.error ? esc(a.error) : 'Loading storage…'}</div>`}
+        : `<div class="small muted">${a.error ? esc(a.error) : (st.key === 'Offline' ? 'Offline – storage details unavailable right now.' : 'Loading storage…')}</div>`}
       ${st.key === 'NeedsReauth' ? `<div class="err-text">Google needs you to sign in again. Tip: if your Google Cloud app is still in “Testing”, sign-ins expire after 7 days – publish it to avoid this.</div>` : ''}
       <div class="acct-actions">
         ${st.key === 'NeedsReauth' ? `<button class="btn btn-primary sm" data-action="reconnect" data-email="${esc(a.email)}">Reconnect</button>` : `<button class="btn btn-tonal sm" data-browse="${esc(a.email)}">${icon('folder')}Browse</button>`}
@@ -561,10 +563,10 @@ function showSetup() {
     body = `<h1>Let's connect Cloudy to Google</h1>
       <p class="muted">Cloudy uses <b>your own</b> free Google API credentials, so your files never pass through anyone else. This takes about 5 minutes, once.</p>${stepper}
       <ol class="steps">
-        <li><b>Create a project</b> in Google Cloud (any name). ${ext(CONSOLE.project)}</li>
-        <li><b>Enable the Google Drive API</b> for that project. ${ext(CONSOLE.drive)}</li>
-        <li><b>OAuth consent screen:</b> choose “External”, fill in the app name and your email, and add <b>every Google account you plan to link</b> as a Test user. ${ext(CONSOLE.consent)}</li>
-        <li><b>Create credentials → OAuth client ID</b>, application type <b>Desktop app</b>. ${ext(CONSOLE.creds)}</li></ol>
+        <li><span><b>Create a project</b> in Google Cloud (any name).</span>${ext(CONSOLE.project)}</li>
+        <li><span><b>Enable the Google Drive API</b> for that project.</span>${ext(CONSOLE.drive)}</li>
+        <li><span><b>OAuth consent screen:</b> choose “External”, fill in the app name and your email, and add <b>every Google account you plan to link</b> as a Test user.</span>${ext(CONSOLE.consent)}</li>
+        <li><span><b>Create credentials → OAuth client ID</b>, application type <b>Desktop app</b>.</span>${ext(CONSOLE.creds)}</li></ol>
       <div class="callout">${icon('warning')}<span>While the app is in “Testing”, Google makes sign-ins <b>expire after 7 days</b>. To avoid that, set the publishing status to <b>In production</b> on the consent screen. You'll see an “unverified app” notice when signing in – choose <i>Advanced → Continue</i>; it's your own app.</span></div>
       <div class="modal-actions" style="justify-content:flex-start"><button class="btn btn-primary" data-action="setup-next">I have my Client ID</button>
         ${S.hasCreds ? '<button class="btn btn-text" data-view="settings">Cancel</button>' : ''}</div>`;
