@@ -39,7 +39,9 @@ struct RedactingVisitor<'a, 'writer> {
 impl<'a, 'writer> tracing::field::Visit for RedactingVisitor<'a, 'writer> {
     fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
         let name = field.name().to_lowercase();
-        if name.contains("token") || name.contains("secret") || name.contains("authorization") || name.contains("client_id") {
+        if name == "message" {
+            let _ = write!(self.writer, "{:?} ", value);
+        } else if name.contains("token") || name.contains("secret") || name.contains("authorization") || name.contains("client_id") {
             let _ = write!(self.writer, "{} = [REDACTED] ", field.name());
         } else {
             let _ = write!(self.writer, "{} = {:?} ", field.name(), value);
@@ -48,9 +50,7 @@ impl<'a, 'writer> tracing::field::Visit for RedactingVisitor<'a, 'writer> {
 }
 
 pub fn init_logging(level: &str) {
-    let mut log_dir = dirs::data_local_dir().unwrap_or_else(|| PathBuf::from("."));
-    log_dir.push("clouddrive");
-    log_dir.push("logs");
+    let log_dir: PathBuf = crate::config::paths::data_dir().join("logs");
     
     std::fs::create_dir_all(&log_dir).unwrap_or_default();
     
@@ -62,8 +62,19 @@ pub fn init_logging(level: &str) {
         .event_format(RedactingFormatter)
         .with_writer(file_appender);
         
+    let stderr_layer = if cfg!(debug_assertions) || std::env::var("CLOUDY_LOG_STDERR").is_ok() {
+        Some(
+            tracing_subscriber::fmt::layer()
+                .event_format(RedactingFormatter)
+                .with_writer(std::io::stderr),
+        )
+    } else {
+        None
+    };
+
     let _ = tracing_subscriber::registry()
         .with(env_filter)
         .with(fmt_layer)
+        .with(stderr_layer)
         .try_init();
 }

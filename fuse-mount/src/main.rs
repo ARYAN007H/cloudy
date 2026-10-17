@@ -87,6 +87,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("Failed to initialize CoreEngine");
     
     let engine = Arc::new(engine);
+    // The engine was built outside the runtime: tell it which runtime to use for
+    // background work, otherwise start_sync() below cannot spawn the sync tasks.
+    engine.set_runtime(runtime_handle.clone());
 
     if !engine.has_client_credentials() {
         error!("No client credentials found. Please configure OAuth credentials.");

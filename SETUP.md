@@ -1,8 +1,11 @@
-# CloudDrive Setup Guide
+# Cloudy Setup Guide
+
+> Cloudy's first-run wizard shows these same steps with one-click links to the right Google pages and
+> a form for the credentials. This document is the long version.
 
 ## Prerequisites
-- CloudDrive installed (see README.md for build instructions)
-- 1-4 Google/Gmail accounts you want to use
+- Cloudy installed (see README.md for build instructions)
+- One or more Google/Gmail accounts you want to use
 - A web browser
 
 ## Step 1: Create a Google Cloud Project
@@ -10,7 +13,7 @@
 2. Sign in with one of your Google accounts (it doesn't matter which one)
 3. Click the project dropdown at the top of the page (it may say "Select a project" or show a project name)
 4. Click "New Project" in the dialog that appears
-5. Enter project name: "CloudDrive" (or anything you like)
+5. Enter project name: "Cloudy" (or anything you like)
 6. Leave Organization as "No organization"
 7. Click "Create"
 8. Wait a moment, then make sure the new project is selected in the project dropdown
@@ -26,7 +29,7 @@
 1. In the left sidebar, go to "APIs & Services" → "OAuth consent screen" (or go to https://console.cloud.google.com/apis/credentials/consent)
 2. Select "External" as the User Type and click "Create"
 3. Fill in the required fields:
-   - App name: "CloudDrive"
+   - App name: "Cloudy"
    - User support email: select your email
    - Developer contact information: enter your email
 4. Click "Save and Continue"
@@ -34,7 +37,7 @@
 6. Search for "Google Drive API" and check the box for `.../auth/drive` (described as "See, edit, create, and delete all of your Google Drive files")
 7. Click "Update" then "Save and Continue"
 8. On the "Test users" page, click "Add Users"
-9. Enter ALL the Gmail addresses you want to use with CloudDrive (up to 4). For example:
+9. Enter ALL the Gmail addresses you want to use with Cloudy . For example:
    - you@gmail.com
    - you.backup1@gmail.com
    - you.backup2@gmail.com
@@ -45,7 +48,7 @@
 ### Important: Understanding "Testing" Mode
 Your app is now in "Testing" publishing status. This means:
 - **Only the specific Gmail addresses you added as test users can log in.** Other accounts will see an error.
-- **Refresh tokens expire after 7 days.** This means approximately once a week, CloudDrive will ask you to re-authenticate one or more accounts. This is a Google-imposed limitation for apps in Testing mode.
+- **Refresh tokens expire after 7 days.** This means approximately once a week, Cloudy will ask you to re-authenticate one or more accounts. This is a Google-imposed limitation for apps in Testing mode.
 - **This is normal and expected.** Going through Google's formal app verification process is designed for apps serving many users, not personal tools. CloudDrive handles expired tokens gracefully — it will pause syncing for the affected account and prompt you to reconnect.
 
 ### Why "Full Drive Access" and not a narrower scope?
@@ -93,3 +96,20 @@ CloudDrive uses your system's secret storage. On Arch Linux:
 - GNOME/XFCE: `sudo pacman -S gnome-keyring libsecret`
 - KDE: `sudo pacman -S kwallet`
 - i3/Sway/Hyprland: `sudo pacman -S gnome-keyring libsecret` and add `eval $(gnome-keyring-daemon --start --components=secrets)` to your shell profile
+
+
+## Optional: stop the 7-day sign-in expiry
+
+In *Testing* mode Google expires refresh tokens after 7 days. To avoid re-authorising weekly, open
+**OAuth consent screen** (or *Audience* in the newer console) and set the publishing status to
+**In production**. Because the app is only for you, you do **not** need Google's verification:
+
+- When signing in you will see "Google hasn't verified this app" – choose **Advanced → Go to Cloudy (unsafe)**.
+  It is your own app talking to your own account.
+- Unverified apps are limited to 100 users, which is far more than you need.
+
+## Adding another account later
+
+Use **Accounts → Add a Google account** in the app. In Google's account picker choose
+**Use another account** to add an address other than the one your browser is signed into.
+If you used Testing mode, remember to add the new address under *Test users* first.
