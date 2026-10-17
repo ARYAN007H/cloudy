@@ -666,15 +666,20 @@ dependencies = [
 name = "clouddrive-gui"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "clouddrive-core",
+ "open",
+ "percent-encoding",
+ "rand 0.8.7",
  "serde",
  "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
+ "tempfile",
  "tokio",
  "tracing",
- "tracing-subscriber",
+ "url",
 ]
 
 [[package]]

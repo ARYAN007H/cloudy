@@ -342,6 +342,25 @@ impl CoreEngine {
         join_all(accounts.iter().map(|a| self.summary_for(a, force))).await
     }
 
+    /// Account list built purely from local state (no network) so a UI can
+    /// paint immediately; quotas appear once [`account_summaries`] has run.
+    pub fn account_summaries_local(&self) -> Vec<AccountSummary> {
+        self.list_accounts()
+            .into_iter()
+            .map(|email| {
+                let (display_name, quota) = self
+                    .about_cache
+                    .read()
+                    .get(&email)
+                    .map(|(_, n, q)| (n.clone(), q.clone()))
+                    .unwrap_or((None, None));
+                let sync = if self.auth.needs_reauth(&email) { SyncStatus::NeedsReauth } else { self.sync.status(&email) };
+                let files_indexed = self.cache.get_file_count_for_account(&email).unwrap_or(0) as u64;
+                AccountSummary { email, display_name, quota, sync, files_indexed, error: None }
+            })
+            .collect()
+    }
+
     async fn summary_for(&self, email: &str, force: bool) -> AccountSummary {
         let files_indexed = self.cache.get_file_count_for_account(email).unwrap_or(0) as u64;
         let mut sync = self.sync.status(email);

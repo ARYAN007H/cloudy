@@ -2,7 +2,7 @@
 name = "clouddrive-gui"
 version = "0.1.0"
 edition = "2021"
-description = "Tauri desktop GUI for CloudDrive"
+description = "Cloudy desktop app (Tauri)"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -15,4 +15,12 @@ tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+open = "5"
+rand = "0.8"
+url = "2"
+percent-encoding = "2"
+bytes = "1"
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { workspace = true }
