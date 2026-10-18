@@ -11,6 +11,24 @@ account that has room.
  spare2@gmail.com ─┘
 ```
 
+<p align="center">
+  <img src="docs/screenshots/02_files_grid.png" alt="Cloudy Main View" width="100%">
+</p>
+
+## Screenshots
+
+| Merged Files (List View) | Photos & Videos Gallery |
+|:---:|:---:|
+| <img src="docs/screenshots/01_files_list.png" alt="Files List" width="100%"> | <img src="docs/screenshots/03_photos_gallery.png" alt="Photos Gallery" width="100%"> |
+| **Combined Accounts Pool (15 GB × N)** | **Full-Screen Lightbox Preview** |
+| <img src="docs/screenshots/05_accounts_pool.png" alt="Accounts & Storage Breakdown" width="100%"> | <img src="docs/screenshots/04_photo_lightbox.png" alt="Lightbox Preview" width="100%"> |
+
+<details>
+<summary><b>View active transfers screenshot</b></summary>
+<br>
+<img src="docs/screenshots/06_transfers.png" alt="Transfers View" width="100%">
+</details>
+
 ## Features
 
 - **One pool, many accounts** – same-named folders from different accounts are merged into one
