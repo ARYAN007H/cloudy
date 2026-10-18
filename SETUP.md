@@ -45,6 +45,11 @@
 10. Click "Add" then "Save and Continue"
 11. Review the summary and click "Back to Dashboard"
 
+> **Newer Google Cloud console:** the "OAuth consent screen" is now called **Google Auth Platform** and is split into
+> *Branding* (app name, support email), *Audience* (External, test users, **Publish app**), *Data Access* (scopes)
+> and *Clients* (the OAuth client ID in Step 4). The settings are the same – just find them under those tabs.
+> Make sure `.../auth/drive` is added under **Data Access**, and consider publishing the app (see below).
+
 ### Important: Understanding "Testing" Mode
 Your app is now in "Testing" publishing status. This means:
 - **Only the specific Gmail addresses you added as test users can log in.** Other accounts will see an error.
@@ -88,6 +93,14 @@ This means the Google account you're trying to use wasn't added as a test user. 
 ### "This app is blocked" or similar errors
 Make sure you're signed into the Google account that was added as a test user. Try using an incognito/private browser window.
 
+### Google says "Something went wrong" after "Continue"
+This message comes from Google's own consent page, before Google ever calls back to Cloudy, so Cloudy cannot see
+or fix it. It is a known problem with apps in *Testing* mode in some browsers. In order:
+1. In Cloudy's sign-in dialog click **Copy**, and paste the link into a **Chromium-based browser** (Chrome, Chromium, Brave, Edge).
+2. Use a private window, or one where only the account you are adding is signed in.
+3. Confirm the account is under *Audience → Test users* – or **Publish app** (see below) so no list is needed.
+4. Remove Cloudy's access at https://myaccount.google.com/permissions and try again.
+
 ### Re-authentication prompts
 If CloudDrive asks you to reconnect an account, this is normal — Testing mode tokens expire after 7 days. Just click "Reconnect" and sign in again.
 
@@ -98,7 +111,7 @@ CloudDrive uses your system's secret storage. On Arch Linux:
 - i3/Sway/Hyprland: `sudo pacman -S gnome-keyring libsecret` and add `eval $(gnome-keyring-daemon --start --components=secrets)` to your shell profile
 
 
-## Optional: stop the 7-day sign-in expiry
+## Recommended: publish the app (stops the 7-day sign-in expiry)
 
 In *Testing* mode Google expires refresh tokens after 7 days. To avoid re-authorising weekly, open
 **OAuth consent screen** (or *Audience* in the newer console) and set the publishing status to

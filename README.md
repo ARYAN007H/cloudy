@@ -91,6 +91,7 @@ Set `CLOUDY_LOG_STDERR=1` to also log to the terminal, and `CLOUDDRIVE_NO_KEYRIN
 | An account says **Sign-in needed** after about a week | Your Google Cloud app is in *Testing* mode. Reconnect, and set the app to *In production* to stop it recurring. |
 | "redirect_uri_mismatch" / "invalid_client" | Create the OAuth client as type **Desktop app**, and re-enter the Client ID/Secret in Settings. |
 | "Google Drive API has not been used…" | Enable the Drive API for your project (SETUP.md, step 2). |
+| Google says **"Something went wrong"** after *Continue* | Google-side error. Copy the sign-in link from Cloudy's dialog into a Chromium-based browser (Chrome/Brave/Edge); see [SETUP.md](SETUP.md#google-says-something-went-wrong-after-continue). |
 | Browser doesn't open on sign-in | Use *Copy* in the dialog and paste the link into any browser on the same computer. |
 | Photos/thumbnails missing for a file | Google hasn't generated a thumbnail for it (common for fresh uploads); it appears later. |
 
