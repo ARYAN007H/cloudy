@@ -243,3 +243,6 @@ kbd{padding:1px 7px;border-radius:6px;border:1px solid var(--border);background:
 }
 @media (prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;transition-duration:.01ms!important}}
 .kind-box{width:32px;height:32px}
+.tips{margin-top:14px;font-size:13px;color:var(--text-2)} .tips summary{cursor:pointer;color:var(--primary);font-weight:600}
+.tips ul{margin:8px 0 0 18px;display:flex;flex-direction:column;gap:6px} .tips .btn.sm{height:auto;padding:0 2px;font-size:13px;vertical-align:baseline}
+code{font:12px ui-monospace,monospace;background:var(--surface-3);padding:1px 5px;border-radius:5px}

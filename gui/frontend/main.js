@@ -565,9 +565,9 @@ function showSetup() {
       <ol class="steps">
         <li><span><b>Create a project</b> in Google Cloud (any name).</span>${ext(CONSOLE.project)}</li>
         <li><span><b>Enable the Google Drive API</b> for that project.</span>${ext(CONSOLE.drive)}</li>
-        <li><span><b>OAuth consent screen:</b> choose “External”, fill in the app name and your email, and add <b>every Google account you plan to link</b> as a Test user.</span>${ext(CONSOLE.consent)}</li>
+        <li><span><b>Consent screen (Google Auth Platform):</b> choose “External”, enter an app name and your email. Under <b>Data Access</b> add the scope <code>…/auth/drive</code>. Under <b>Audience</b> click <b>Publish app</b> (recommended), or stay in Testing and add <b>every Google account you plan to link</b> as a Test user.</span>${ext(CONSOLE.consent)}</li>
         <li><span><b>Create credentials → OAuth client ID</b>, application type <b>Desktop app</b>.</span>${ext(CONSOLE.creds)}</li></ol>
-      <div class="callout">${icon('warning')}<span>While the app is in “Testing”, Google makes sign-ins <b>expire after 7 days</b>. To avoid that, set the publishing status to <b>In production</b> on the consent screen. You'll see an “unverified app” notice when signing in – choose <i>Advanced → Continue</i>; it's your own app.</span></div>
+      <div class="callout">${icon('warning')}<span>Publishing is recommended: in “Testing”, sign-ins <b>expire after 7 days</b> and every account must be added as a Test user. When signing in you'll see an “unverified app” notice – choose <i>Advanced → Go to Cloudy (unsafe)</i>; it's your own app. If Google’s consent page ever says “Something went wrong”, open the sign-in link in a Chromium-based browser.</span></div>
       <div class="modal-actions" style="justify-content:flex-start"><button class="btn btn-primary" data-action="setup-next">I have my Client ID</button>
         ${S.hasCreds ? '<button class="btn btn-text" data-view="settings">Cancel</button>' : ''}</div>`;
   } else if (step === 2) {
@@ -611,7 +611,7 @@ async function importCredentials() {
 }
 
 /* ============================================================ Modals */
-function modal(html, { onClose, wide } = {}) {
+function modal(html, { onClose, wide, sticky } = {}) {
   const root = $('#modal-root');
   const scrim = document.createElement('div');
   scrim.className = 'scrim';
@@ -620,7 +620,7 @@ function modal(html, { onClose, wide } = {}) {
   const close = (reason) => { scrim.remove(); document.removeEventListener('keydown', onKey, true); onClose && onClose(reason); };
   const onKey = (e) => { if (e.key === 'Escape' && root.lastElementChild === scrim) { e.stopPropagation(); close('esc'); } };
   document.addEventListener('keydown', onKey, true);
-  scrim.addEventListener('mousedown', (e) => { if (e.target === scrim) close('scrim'); });
+  scrim.addEventListener('mousedown', (e) => { if (e.target === scrim && !sticky) close('scrim'); });
   const first = $('input, button.btn-primary, button', scrim);
   first && first.focus();
   return { el: $('.modal', scrim), close };
@@ -701,6 +701,11 @@ async function openAddAccount({ reconnect = null } = {}) {
       <p class="hint" style="margin-top:12px">${reconnect ? '' : 'Tip: use “Use another account” in Google’s picker to add an account other than the one you’re signed into.'}</p>
       ${url ? `<div class="linkbox"><span>${esc(url)}</span><button class="btn btn-outline sm" data-m="copy">${icon('copy')}Copy</button></div>
         <p class="hint" style="margin-top:6px">Browser didn't open? Copy the link and paste it into any browser on this computer.</p>` : ''}
+      <details class="tips"><summary>Google shows “Something went wrong”?</summary><ul>
+        <li>Copy the link above and open it in a Chromium-based browser (Chrome, Chromium, Brave or Edge). Google’s consent page for apps in “Testing” is known to fail in some other browsers.</li>
+        <li>Try a private window, or one where you’re signed into only the account you’re adding.</li>
+        <li>Make sure this account is listed under <b>Test users</b> in Google Cloud – or publish the app (<i>Audience → Publish app</i>) so no list is needed.</li>
+        <li>Still stuck? <button class="btn btn-text sm" data-external="https://myaccount.google.com/permissions">Remove Cloudy’s access</button> in your Google account, then try again.</li></ul></details>
       <div class="modal-actions">${url ? `<button class="btn btn-outline" data-m="again">${icon('external')}Open again</button>` : ''}<button class="btn btn-text" data-m="cancel">Cancel</button></div>`
       : `<h2>Couldn't add the account</h2><p class="err-text" style="margin:8px 0 4px">${esc(errText(error))}</p>
       ${hintFor(error)}<div class="modal-actions"><button class="btn btn-text" data-m="cancel">Close</button>
@@ -712,7 +717,7 @@ async function openAddAccount({ reconnect = null } = {}) {
     account_mismatch: '<p class="hint">Reconnect must use the same Google account. To use a different one, remove this account and add the other.</p>',
     offline: '<p class="hint">Check your internet connection and try again.</p>',
   }[e.code] || '');
-  dlg = modal('', { onClose: (why) => { if (state === 'wait' && why !== 'ok') api.cancelAdd().catch(() => {}); unlisten && unlisten(); } });
+  dlg = modal('', { sticky: true, onClose: (why) => { if (state === 'wait' && why !== 'ok') api.cancelAdd().catch(() => {}); unlisten && unlisten(); } });
   dlg.el.addEventListener('click', async (e) => {
     const b = e.target.closest('[data-m]');
     if (!b) return;
