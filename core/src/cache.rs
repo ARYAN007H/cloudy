@@ -79,6 +79,20 @@ fn upsert_in(tx: &Transaction<'_>, file: &DriveFile, account: &str) -> rusqlite:
     Ok(())
 }
 
+/// Delete `drive_id` and everything below it (`UNION`, not `UNION ALL`, so a corrupt
+/// parent cycle cannot loop). Ids are only unique per account, hence the account filter.
+fn delete_subtree(conn: &Connection, drive_id: &str, account: &str) -> rusqlite::Result<usize> {
+    conn.execute(
+        "WITH RECURSIVE sub(id) AS (
+             SELECT ?1
+             UNION
+             SELECT f.drive_id FROM files f JOIN sub s ON f.parent_id = s.id WHERE f.account_email = ?2
+         )
+         DELETE FROM files WHERE account_email = ?2 AND drive_id IN (SELECT id FROM sub)",
+        params![drive_id, account],
+    )
+}
+
 fn like_pattern(q: &str) -> String {
     let esc = q.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
     format!("%{esc}%")
@@ -186,12 +200,13 @@ impl MetadataCache {
         let mut touched = 0;
         for c in changes {
             match &c.file {
-                // Gone, trashed, or not ours (shared with us) → not part of the pool.
                 Some(f) if !c.removed && !f.trashed && f.owned_by_me => {
                     upsert_in(&tx, f, account).map_err(db)?;
                     touched += 1;
                 }
-                _ => {
+                // Shared with us: not part of the pool. Only this row can exist; what lies
+                // *below* such a folder may well be our own files, so it must stay.
+                Some(f) if !c.removed && !f.trashed => {
                     touched += tx
                         .execute(
                             "DELETE FROM files WHERE drive_id = ?1 AND account_email = ?2",
@@ -199,6 +214,9 @@ impl MetadataCache {
                         )
                         .map_err(db)?;
                 }
+                // Deleted or trashed: a folder takes its contents with it, otherwise they
+                // would lose their parent and reappear at the top level.
+                _ => touched += delete_subtree(&tx, &c.file_id, account).map_err(db)?,
             }
         }
         tx.execute(
@@ -211,10 +229,10 @@ impl MetadataCache {
         Ok(touched)
     }
 
+    /// Remove a file – or a folder together with everything inside it.
     pub fn remove_file(&self, drive_id: &str, account: &str) -> Result<(), CloudError> {
         let conn = self.conn.lock();
-        conn.execute("DELETE FROM files WHERE drive_id = ?1 AND account_email = ?2", params![drive_id, account])
-            .map_err(db)?;
+        delete_subtree(&conn, drive_id, account).map_err(db)?;
         Ok(())
     }
 
@@ -481,6 +499,75 @@ mod tests {
         let ids: Vec<String> = c.all_files_for_account("a@x.com").unwrap().into_iter().map(|f| f.id).collect();
         assert_eq!(ids, vec!["3"]);
         assert_eq!(c.get_change_token("a@x.com").unwrap().as_deref(), Some("T2"));
+    }
+
+    fn ids_of(c: &MetadataCache, account: &str) -> Vec<String> {
+        let mut v: Vec<String> = c.all_files_for_account(account).unwrap().into_iter().map(|f| f.id).collect();
+        v.sort();
+        v
+    }
+
+    #[test]
+    fn removing_a_folder_removes_everything_inside_it() {
+        let (_d, c) = cache();
+        c.upsert_files(
+            "a@x.com",
+            &[
+                file("f", "Dir", "ROOT", true),
+                file("g", "Sub", "f", true),
+                file("1", "a.jpg", "f", false),
+                file("2", "b.jpg", "g", false),
+                file("3", "keep.jpg", "ROOT", false),
+            ],
+        )
+        .unwrap();
+        // Drive ids are only unique per account: another account's "1" must survive.
+        c.upsert_files("b@x.com", &[file("1", "other.jpg", "ROOT", false)]).unwrap();
+        c.remove_file("f", "a@x.com").unwrap();
+        assert_eq!(ids_of(&c, "a@x.com"), vec!["3"], "nothing may be left orphaned at the top level");
+        assert_eq!(ids_of(&c, "b@x.com"), vec!["1"]);
+        // a parent cycle (corrupt data) must not hang the recursion
+        c.upsert_files("a@x.com", &[file("x", "x", "y", true), file("y", "y", "x", true)]).unwrap();
+        c.remove_file("x", "a@x.com").unwrap();
+        assert_eq!(ids_of(&c, "a@x.com"), vec!["3"]);
+    }
+
+    #[test]
+    fn trashed_or_deleted_folders_in_the_change_feed_take_their_contents_along() {
+        let (_d, c) = cache();
+        c.replace_account_files(
+            "a@x.com",
+            &[
+                file("f", "Trashed", "ROOT", true),
+                file("1", "a.jpg", "f", false),
+                file("g", "Deleted", "ROOT", true),
+                file("2", "b.jpg", "g", false),
+                file("k", "Kept", "ROOT", true),
+                file("3", "c.jpg", "k", false),
+            ],
+            "T1",
+        )
+        .unwrap();
+        let mut trashed = file("f", "Trashed", "ROOT", true);
+        trashed.trashed = true;
+        let changes = vec![
+            Change { file_id: "f".into(), removed: false, file: Some(trashed) },
+            Change { file_id: "g".into(), removed: true, file: None },
+        ];
+        c.apply_changes("a@x.com", &changes, "T2").unwrap();
+        assert_eq!(ids_of(&c, "a@x.com"), vec!["3", "k"]);
+    }
+
+    #[test]
+    fn a_change_for_a_folder_shared_with_us_does_not_delete_our_files_inside_it() {
+        let (_d, c) = cache();
+        // "m" is ours but lives in someone else's folder "SHARED" (never cached: not ours).
+        c.replace_account_files("a@x.com", &[file("m", "mine.jpg", "SHARED", false)], "T1").unwrap();
+        let mut foreign = file("SHARED", "Their folder", "ROOT", true);
+        foreign.owned_by_me = false;
+        c.apply_changes("a@x.com", &[Change { file_id: "SHARED".into(), removed: false, file: Some(foreign) }], "T2")
+            .unwrap();
+        assert_eq!(ids_of(&c, "a@x.com"), vec!["m"]);
     }
 
     #[test]

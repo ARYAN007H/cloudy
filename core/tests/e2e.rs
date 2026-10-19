@@ -98,9 +98,12 @@ async fn full_user_journey() {
     assert_eq!(e.list_accounts(), vec!["a@x.com", "b@x.com"]);
 
     // ---- 2. existing data actually loads (the other bug) -------------------------
+    // Mid-index, files whose folder has not arrived yet show up at the top level, so the
+    // *count* alone can match too early: wait until the folders themselves are there.
     wait_for("both accounts indexed", || {
+        let has = |a: &str, name: &str| pool_names(e, a).contains(&name.to_string());
         let n = |a: &str| e.list_children(a).len();
-        n("a@x.com") == 3 && n("b@x.com") == 1
+        has("a@x.com", "Photos") && has("a@x.com", "Docs") && n("a@x.com") == 3 && has("b@x.com", "Photos") && n("b@x.com") == 1
     })
     .await;
     let top = pool_names(e, "pool");
@@ -249,7 +252,7 @@ async fn full_user_journey() {
 async fn data_survives_restart_and_shows_instantly() {
     let h = setup().await;
     add(&h, "a@x.com").await;
-    wait_for("indexed", || h.engine.list_children("a@x.com").len() == 3).await;
+    wait_for("indexed", || pool_names(&h.engine, "a@x.com").contains(&"Photos".to_string())).await;
     h.engine.stop_sync();
     drop(h.engine);
 
@@ -265,4 +268,26 @@ async fn data_survives_restart_and_shows_instantly() {
     .unwrap();
     assert_eq!(e2.list_accounts(), vec!["a@x.com"]);
     assert!(pool_names(&e2, "pool").contains(&"Photos".to_string()), "tree restored from cache with no network");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn trashing_a_folder_takes_its_contents_along_and_restoring_brings_them_back() {
+    let h = setup().await;
+    let e = &h.engine;
+    add(&h, "a@x.com").await;
+    wait_for("indexed", || pool_names(e, "a@x.com").contains(&"Docs".to_string()) && pool_names(e, "a@x.com").contains(&"Photos".to_string())).await;
+
+    let docs = e.lookup_child("pool", "Docs").unwrap();
+    assert!(e.lookup_child(&docs.id, "note.txt").is_some());
+    e.trash_file(&docs.id).await.unwrap();
+    let top = pool_names(e, "pool");
+    assert!(!top.contains(&"Docs".to_string()), "{top:?}");
+    assert!(!top.contains(&"note.txt".to_string()), "contents must not spill into the top level: {top:?}");
+
+    e.restore_trashed("a@x.com", "A_docs").await.unwrap();
+    wait_for("folder and its contents are back", || {
+        e.lookup_child("pool", "Docs").and_then(|d| e.lookup_child(&d.id, "note.txt")).is_some()
+    })
+    .await;
+    assert!(!pool_names(e, "pool").contains(&"note.txt".to_string()), "restored contents belong inside the folder");
 }

@@ -2,7 +2,7 @@ use fuser::{
     FileAttr, FileType, Filesystem, ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory, ReplyEmpty,
     ReplyEntry, ReplyOpen, ReplyStatfs, ReplyWrite, TimeOrNow,
 };
-use libc::{EACCES, EIO, ENOENT, ENOSYS, ENOTEMPTY};
+use libc::{EACCES, EIO, ENOENT, ENOTEMPTY, EROFS};
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::ffi::OsStr;
@@ -154,7 +154,9 @@ impl Filesystem for CloudDriveFs {
         for child in &children {
             let child_ino = inodes_lock.get_or_assign(&child.id);
             let kind = if child.is_dir { FileType::Directory } else { FileType::RegularFile };
-            entries.push((child_ino, kind, &child.name));
+            // display_name, not name: it is what lookup() resolves (duplicates get a suffix, Google
+            // Docs get their .docx/.xlsx extension) - otherwise `ls` shows files that cannot be opened.
+            entries.push((child_ino, kind, &child.display_name));
         }
         drop(inodes_lock);
 
@@ -187,6 +189,13 @@ impl Filesystem for CloudDriveFs {
         
         if is_writing && (node.is_workspace_file || node.is_read_only) {
             reply.error(EACCES);
+            return;
+        }
+        // Writing file *contents* is not implemented yet. Accepting the write and dropping the
+        // data on close would lose the user's work silently, so refuse it up front.
+        // (mkdir, rename and delete do work.)
+        if is_writing {
+            reply.error(EROFS);
             return;
         }
 
@@ -340,12 +349,8 @@ impl Filesystem for CloudDriveFs {
         
         let _name_str = name.to_string_lossy();
         
-        // This is a simplified mock creation in the engine for the sake of FUSE.
-        // The engine normally wouldn't create a file synchronously without upload.
-        // We assume we can create an empty file or at least a VirtualNode.
-        // However, clouddrive_core doesn't have create_file, just create_folder.
-        // This implies writes to new files must just be handled in memory/temp and uploaded later.
-        reply.error(ENOSYS); // Simplified: defer to actual implementation specifics
+        // Creating files is not supported yet (see open()): say so instead of pretending.
+        reply.error(EROFS);
     }
 
     fn mkdir(
@@ -539,8 +544,8 @@ impl Filesystem for CloudDriveFs {
         _req: &fuser::Request<'_>,
         ino: u64,
         _mode: Option<u32>,
-        uid: Option<u32>,
-        gid: Option<u32>,
+        _uid: Option<u32>,
+        _gid: Option<u32>,
         size: Option<u64>,
         _atime: Option<TimeOrNow>,
         _mtime: Option<TimeOrNow>,
@@ -552,11 +557,10 @@ impl Filesystem for CloudDriveFs {
         _flags: Option<u32>,
         reply: ReplyAttr,
     ) {
-        if let Some(uid_val) = uid {
-            self.uid = uid_val;
-        }
-        if let Some(gid_val) = gid {
-            self.gid = gid_val;
+        // Truncating would be a lie (nothing is written back); chmod/chown/touch are ignored.
+        if size.is_some() {
+            reply.error(EROFS);
+            return;
         }
 
         let node_id = match self.get_node_id(ino) {
@@ -567,11 +571,7 @@ impl Filesystem for CloudDriveFs {
             }
         };
 
-        if let Some(mut node) = self.engine.get_node(&node_id) {
-            if let Some(s) = size {
-                // If it's 0, it might mean truncation for rewrite. Just simulate size update.
-                node.size = s;
-            }
+        if let Some(node) = self.engine.get_node(&node_id) {
             let attr = self.node_to_attr(&node, ino);
             reply.attr(&TTL, &attr);
         } else {
