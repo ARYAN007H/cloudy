@@ -1116,6 +1116,12 @@ impl CoreEngine {
         self.api.restore_file(account, drive_id).await?;
         let f = self.api.get_file_metadata(account, drive_id).await?;
         self.cache.upsert_file(&f, account)?;
+        if f.is_folder {
+            // Drive un-trashes the folder's contents too, but we dropped them from the index
+            // when it was trashed: re-index the account so they come back.
+            self.cache.clear_change_token(account)?;
+            self.sync.kick(account);
+        }
         self.refresh_tree().await
     }
 

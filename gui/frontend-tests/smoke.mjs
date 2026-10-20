@@ -10,9 +10,10 @@ const scenario = process.argv[2] || 'main';
 const html = fs.readFileSync(`${FE}/index.html`, 'utf8').replace(/<script[^>]*><\/script>/, '');
 const dom = new JSDOM(html, { url: 'http://localhost/', pretendToBeVisual: true, runScripts: 'outside-only' });
 const w = dom.window;
+const observers = [];
 Object.assign(globalThis, { window: w, document: w.document, localStorage: w.localStorage, Image: w.Image,
   innerWidth: 1200, innerHeight: 800, requestAnimationFrame: w.requestAnimationFrame.bind(w), CSS: { escape: (s) => String(s).replace(/(["\\])/g, '\\$1') },
-  IntersectionObserver: class { observe() {} disconnect() {} unobserve() {} } });
+  IntersectionObserver: class { constructor(cb) { this.cb = cb; this.live = false; observers.push(this); } observe() { this.live = true; } disconnect() { this.live = false; } unobserve() {} } });
 Object.defineProperty(globalThis, 'navigator', { value: w.navigator, configurable: true });
 w.HTMLElement.prototype.scrollIntoView = () => {};
 
@@ -138,6 +139,13 @@ assert.equal($('.lightbox'), null); ok('Escape closes the lightbox');
 // photos
 click($('[data-view="photos"]'));
 await waitFor('photos', () => $$('.photo').length === 3); assert.ok($('.month')); ok('Photos view lists photos grouped by month');
+assert.match($('.photos-note').textContent, /Google Photos/); ok('Photos view says it shows Drive photos only');
+assert.deepEqual(called('cmd_list_media')[0][1], { offset: 0, limit: 240 });
+const io = observers.filter((o) => o.live).pop(); assert.ok(io, 'a scroll sentinel is observed');
+io.cb([{ isIntersecting: true }]);
+await waitFor('second page requested', () => called('cmd_list_media').length >= 2);
+assert.deepEqual(called('cmd_list_media')[1][1], { offset: 240, limit: 240 }, 'offset advances by rows requested, not photos returned');
+assert.equal($$('.photo').length, 3, 'appending an empty page changes nothing'); ok('Photos paging advances by rows requested (a short page no longer ends the list)');
 click($$('.photo')[0]); await waitFor('photo lightbox', () => $('.lightbox'));
 assert.match($('.lb-title').textContent, /1 \/ 3/);
 document.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));

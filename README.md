@@ -59,6 +59,9 @@ details and for the one setting that decides whether sign-ins expire after 7 day
 - **Moving files between accounts** isn't possible without copying (and temporarily doubling the
   data), so Cloudy refuses it with a clear message; moves within an account are instant.
 - Files that are only *shared with you* are not part of your pool (they use someone else's quota).
+- **The Photos tab shows photos and videos stored in Google Drive only.** Photos that live only in
+  Google Photos (e.g. phone backups) can't be read by other apps: since March 2025 Google allows an
+  app to access only the Photos content it uploaded itself. To see them in Cloudy, get them into Drive.
 
 ## FUSE
 
@@ -68,6 +71,8 @@ details and for the one setting that decides whether sign-ins expire after 7 day
 fusermount3 -u ~/CloudDrive                            # unmount
 ```
 The mount shows `pool/` (merged) and `accounts/<email>/` (exactly what each account contains).
+Browsing, reading, `mkdir`, rename and delete work. **Writing file contents is not supported yet** and
+fails with "Read-only file system" instead of silently losing data - upload through the app for now.
 
 ## Where things are stored
 

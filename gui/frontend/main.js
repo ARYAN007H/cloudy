@@ -368,8 +368,12 @@ function openItem(id) {
 /* ============================================================ Photos */
 const PAGE = 240;
 async function showPhotos() {
-  S.photos = { items: [], done: false, loading: false };
-  content().innerHTML = `<div class="page-head"><div class="page-title">Photos & videos</div></div><div id="photo-root"></div><div id="photo-more" class="more-sentinel"></div>`;
+  // `offset` counts the rows we asked for, not the photos that came back: a row can be missing
+  // from the tree (e.g. while an account is still being indexed) and the two must not drift apart.
+  S.photos = { items: [], offset: 0, done: false, loading: false, rendered: 0, month: '', io: null };
+  content().innerHTML = `<div class="page-head"><div class="page-title">Photos & videos</div></div>
+    <p class="hint photos-note">Photos and videos stored in your Google Drive accounts. Photos that live only in Google Photos can’t be read by other apps.</p>
+    <div id="photo-root"></div><div id="photo-more" class="more-sentinel"></div>`;
   await loadPhotoPage();
 }
 
@@ -378,42 +382,57 @@ async function loadPhotoPage(reload = false) {
   if (P.loading || (P.done && !reload)) return;
   P.loading = true;
   try {
-    const want = reload ? Math.max(PAGE, P.items.length) : PAGE;
-    const page = await api.media(reload ? 0 : P.items.length, want);
+    const n = reload ? Math.max(PAGE, P.offset) : PAGE;
+    const page = await api.media(reload ? 0 : P.offset, n);
     if (S.view !== 'photos') return;
-    if (reload) { P.items = page; P.done = page.length < want; }
-    else { P.items = P.items.concat(page); P.done = page.length < PAGE; }
-    renderPhotos();
+    if (reload) { P.items = page; P.offset = n; }
+    else { P.items = P.items.concat(page); P.offset += n; }
+    P.done = page.length === 0;   // only an empty page means "no more" (a short one may just have lost rows)
+    renderPhotos(!reload);
   } catch (e) {
     $('#photo-root') && ($('#photo-root').innerHTML = errorState(e, 'retry-photos'));
   } finally { P.loading = false; }
 }
 
-function renderPhotos() {
+function photoHtml(p) {
+  return `<button class="photo" data-photo="${esc(p.id)}" aria-label="${esc(p.name)}"><div class="fallback">${kindIcon(p)}</div>
+    <img loading="lazy" decoding="async" alt="" src="${thumbUrl(p.id, 320)}" data-thumb-card>${kindOf(p) === 'video' ? `<span class="play-badge">${icon('play')}</span>` : ''}</button>`;
+}
+
+/** `append`: add only the photos that arrived since the last call (no flicker, no reload of thumbnails). */
+function renderPhotos(append = false) {
   const root = $('#photo-root');
   if (!root) return;
   const P = S.photos;
+  if (P.io) { P.io.disconnect(); P.io = null; }
   if (!P.items.length) {
     const syncing = S.accounts.some((a) => accountState(a).key === 'Syncing');
     root.innerHTML = `<div class="empty">${syncing ? '<div class="spinner"></div>' : icon('photos', 'big')}
       <h2>${syncing ? 'Looking for your photos…' : 'No photos or videos yet'}</h2>
-      <p>${syncing ? 'They will appear as your drives are indexed.' : 'Photos and videos stored in any of your accounts show up here.'}</p></div>`;
+      <p>${syncing ? 'They will appear as your drives are indexed.' : 'Photos and videos stored in Google Drive – in any of your accounts – show up here.'}</p></div>`;
+    P.rendered = 0; P.month = '';
     return;
   }
-  let html = '', last = '';
-  for (const p of P.items) {
-    const m = monthLabel(p.modified);
-    if (m !== last) { html += `${last ? '</div>' : ''}<div class="month">${esc(m)}</div><div class="photos">`; last = m; }
-    html += `<button class="photo" data-photo="${esc(p.id)}" aria-label="${esc(p.name)}"><div class="fallback">${kindIcon(p)}</div>
-      <img loading="lazy" decoding="async" alt="" src="${thumbUrl(p.id, 320)}" data-thumb-card>${kindOf(p) === 'video' ? `<span class="play-badge">${icon('play')}</span>` : ''}</button>`;
+  const c = content(), top = c.scrollTop;
+  const start = append ? P.rendered : 0;
+  if (!start) { root.innerHTML = ''; P.month = ''; }
+  let grid = start ? root.lastElementChild : null;
+  for (let i = start; i < P.items.length; i++) {
+    const p = P.items[i], m = monthLabel(p.modified);
+    if (!grid || m !== P.month) {
+      root.insertAdjacentHTML('beforeend', `<div class="month">${esc(m)}</div><div class="photos"></div>`);
+      grid = root.lastElementChild; P.month = m;
+    }
+    grid.insertAdjacentHTML('beforeend', photoHtml(p));
   }
-  root.innerHTML = html + '</div>';
+  P.rendered = P.items.length;
+  if (!append) c.scrollTop = top;
   const sentinel = $('#photo-more');
   if (sentinel && !P.done) {
-    const io = new IntersectionObserver((en) => {
-      if (en.some((e) => e.isIntersecting)) { io.disconnect(); loadPhotoPage(); }
-    }, { root: content(), rootMargin: '800px' });
-    io.observe(sentinel);
+    P.io = new IntersectionObserver((en) => {
+      if (en.some((e) => e.isIntersecting)) { P.io.disconnect(); P.io = null; loadPhotoPage(); }
+    }, { root: c, rootMargin: '800px' });
+    P.io.observe(sentinel);
   }
 }
 
