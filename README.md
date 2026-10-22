@@ -1,114 +1,242 @@
+<div align="center">
+
 # Cloudy
 
-Cloudy pools the free **15 GB** that every Google account comes with into **one big drive**.
-Link as many accounts as you like, and browse, upload, download and preview everything from a
-single place – the pool shows the union of all your accounts, and new files are placed in the
-account that has room.
+**Pool the free 15 GB allowance from multiple Google accounts into one unified, infinite drive.**
 
-```
- you@gmail.com  ─┐
- spare1@gmail.com ├─►  Cloudy  ─►  one drive, 15 GB × N
- spare2@gmail.com ─┘
-```
+<p>
+  <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/Rust-1.80%2B-orange?style=flat" height="20" alt="Rust"></a>
+  <a href="https://kernel.org"><img src="https://img.shields.io/badge/Platform-Linux-blue?style=flat" height="20" alt="Platform"></a>
+  <a href="https://tauri.app"><img src="https://img.shields.io/badge/GUI-Tauri_v2-24C8DB?style=flat" height="20" alt="Tauri"></a>
+  <a href="SETUP.md"><img src="https://img.shields.io/badge/Storage-Google_Drive-4285F4?style=flat" height="20" alt="Storage"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=flat" height="20" alt="License"></a>
+</p>
+
+</div>
+
+---
+
+<pre style="white-space: pre; overflow-x: auto;">
+  you@gmail.com    ──┐
+  spare1@gmail.com ──┼──►  Cloudy Pool Engine  ──►  One Combined Drive (15 GB × N)
+  spare2@gmail.com ──┘
+</pre>
+
+Cloudy pools the free **15 GB** from as many Google accounts as you like into a single unified drive. Browse, stream, upload, and organize everything from a native zero-latency desktop app, or mount it straight to your Linux filesystem via FUSE.
+
+- **No file splitting or re-encoding**: Every file remains whole in its Google Drive account.
+- **Smart upload balancing**: Automatically picks the account with the most free headroom.
+- **Instant offline index**: Local SQLite database cache with background delta change feeds.
+- **Direct & private**: Talks strictly to Google via your personal OAuth client; refresh tokens live in your system keyring.
+
+---
+
+<div align="center">
+
+![Cloudy Main View](docs/screenshots/02_files_grid.png)
+
+</div>
+
+## Screenshots
+
+| 🗃️ Merged Files (List View) | 🖼️ Timeline Photos & Videos |
+| :---: | :---: |
+| ![Files List](docs/screenshots/01_files_list.png) | ![Photos Gallery](docs/screenshots/03_photos_gallery.png) |
+| **Combined Storage Pool (Hero Breakdown)** | **Full-Screen Media Lightbox** |
+| ![Accounts & Storage Breakdown](docs/screenshots/05_accounts_pool.png) | ![Lightbox Preview](docs/screenshots/04_photo_lightbox.png) |
+
+### Active Transfers & Background Tasks
+
+![Transfers View](docs/screenshots/06_transfers.png)
+
+---
 
 ## Features
 
-- **One pool, many accounts** – same-named folders from different accounts are merged into one
-  folder; each file still lives whole in a single account (nothing is split or re-encoded).
-- **Smart placement** – new uploads go to the account with the most free space (or round-robin,
-  or a pinned account). Uploading into a pooled folder creates the matching folder in whichever
-  account is chosen.
-- **Fast, live UI** – the index is cached locally so the app opens instantly, even offline; changes
-  stream in from Google's change feed. First-time indexing shows files as they are discovered.
-- **Photos** view with thumbnails, month grouping, full-screen viewer and video streaming.
-- **Uploads & downloads** with progress, cancel/retry, resumable uploads and folder support
-  (drag & drop from your desktop works too).
-- **Trash view** – Drive's trash still counts against your quota; Cloudy shows it so you can free space.
-- **Secure** – refresh tokens live in the system keyring (a private `0600` file is the fallback);
-  Cloudy talks only to Google, using *your own* OAuth client.
-- **FUSE mount** (optional) – `clouddrive-fuse` exposes the same pool as a normal folder.
+### 🗂️ Unified Virtual Drive
+- **Same-named folder pooling**: Folders with matching names across distinct accounts are dynamically merged into one browsable directory.
+- **Account provenance dots**: Colored badges highlight exactly which account(s) store each item.
+- **Zero proprietary lock-in**: Files are never fragmented or encrypted with proprietary schemes; your raw files remain directly accessible on drive.google.com.
 
-## Install
+### 🧠 Intelligent Placement Engine
+- **Headroom-aware uploads**: New files automatically go to the account with the most free space.
+- **Configurable policies**: Choose between *Most Free Space*, *Round-Robin*, or *Pinned Account* placement.
+- **Mirrored directory creation**: Uploading into a pooled folder automatically creates the matching parent path in the selected account.
 
-Requirements: Linux, Rust stable (1.80+), and on Arch:
+### ⚡ Blazing Local Cache & Live Sync
+- **Local SQLite index (`metadata.db`)**: App opens instantly offline without waiting for Google API calls.
+- **Real-time change streaming**: Automatically picks up changes made from web or mobile via Google Drive's change feed.
 
+### 📸 Photos & Media Streaming
+- **Chronological gallery**: Photos and videos organized automatically by month.
+- **In-process media server**: Fast thumbnail pipeline and byte-range seeking for hardware-accelerated video/audio streaming.
+- **Full-screen lightbox**: Keyboard-driven viewer with prefetching for instant next/previous navigation.
+
+### 🔒 Bank-Grade Local Security
+- **OS keyring integration**: Refresh tokens and OAuth client secrets are safeguarded in your system keyring (KWallet / Secret Service).
+- **Hardened file fallback**: Unprivileged fallback to `0600` permission-locked local storage when no desktop keyring is available.
+
+### 🐧 Native Linux FUSE Mounting
+- Mount the entire unified pool as a normal folder at `~/CloudDrive`.
+- Transparently inspect both merged files under `pool/` and raw per-account contents under `accounts/<email>/`.
+
+---
+
+## Installation
+
+### Requirements
+- **Linux**
+- **Rust stable (1.80+)**
+
+#### Arch Linux:
 ```bash
 sudo pacman -S --needed base-devel pkg-config fuse3 webkit2gtk-4.1 libsecret dbus
 ```
-(Debian/Ubuntu: `libwebkit2gtk-4.1-dev libgtk-3-dev libfuse3-dev libdbus-1-dev libssl-dev pkg-config`.)
+
+#### Debian / Ubuntu:
+```bash
+sudo apt update
+sudo apt install -y libwebkit2gtk-4.1-dev libgtk-3-dev libfuse3-dev libdbus-1-dev libssl-dev pkg-config
+```
+
+#### Fedora:
+```bash
+sudo dnf install -y webkit2gtk4.1-devel gtk3-devel fuse3-devel libsecret-devel dbus-devel openssl-devel
+```
+
+### Build & Run
 
 ```bash
-git clone https://github.com/ARYAN007H/cloudy.git && cd cloudy
+# Clone the repository
+git clone https://github.com/ARYAN007H/cloudy.git
+cd cloudy
+
+# Build optimized release binaries
 cargo build --release
-./target/release/clouddrive-gui       # desktop app
-./target/release/clouddrive-fuse      # optional FUSE mount (see below)
+
+# Launch Desktop GUI
+./target/release/clouddrive-gui
+
+# (Optional) Mount FUSE filesystem
+./target/release/clouddrive-fuse
 ```
 
-## First run
+---
 
-Cloudy has a built-in setup wizard that walks you through creating free Google API credentials
-(about 5 minutes, once) and then adding your first account. See [SETUP.md](SETUP.md) for the
-details and for the one setting that decides whether sign-ins expire after 7 days.
+## First Run
 
-## Things worth knowing
+Cloudy features an interactive built-in onboarding wizard:
+1. Launch `./target/release/clouddrive-gui`.
+2. Follow the 5-minute setup wizard to create your free Google Cloud OAuth credentials.
+3. Link your primary and secondary accounts.
 
-- **Storage is shared with Gmail and Photos.** A Google account's 15 GB covers Drive + Gmail + Google
-  Photos, so "free space" is what is left of the whole allowance.
-- **The biggest single file** you can add is the free space of your emptiest account (files are not
-  split across accounts).
-- **Moving files between accounts** isn't possible without copying (and temporarily doubling the
-  data), so Cloudy refuses it with a clear message; moves within an account are instant.
-- Files that are only *shared with you* are not part of your pool (they use someone else's quota).
-- **The Photos tab shows photos and videos stored in Google Drive only.** Photos that live only in
-  Google Photos (e.g. phone backups) can't be read by other apps: since March 2025 Google allows an
-  app to access only the Photos content it uploaded itself. To see them in Cloudy, get them into Drive.
+> [!TIP]
+> See [SETUP.md](SETUP.md) for a step-by-step walkthrough and instructions on switching your Google Cloud app from *Testing* to *In Production* to avoid 7-day token expirations.
 
-## FUSE
+---
+
+## FUSE Filesystem
+
+Access your pooled drive directly from your terminal, file manager, or scripts:
 
 ```bash
-./target/release/clouddrive-fuse                       # mounts at ~/CloudDrive
+# Default mount at ~/CloudDrive
+./target/release/clouddrive-fuse
+
+# Custom mount point with verbose foreground logging
 ./target/release/clouddrive-fuse --mount-point /mnt/gdrive --foreground --log-level debug
-fusermount3 -u ~/CloudDrive                            # unmount
+
+# Unmount cleanly
+fusermount3 -u ~/CloudDrive
 ```
-The mount shows `pool/` (merged) and `accounts/<email>/` (exactly what each account contains).
-Browsing, reading, `mkdir`, rename and delete work. **Writing file contents is not supported yet** and
-fails with "Read-only file system" instead of silently losing data - upload through the app for now.
 
-## Where things are stored
+The mounted hierarchy provides two views:
+- `pool/`: The merged, unified view of all linked accounts.
+- `accounts/<email>/`: The isolated filesystem contents of each specific account.
 
-| What | Location |
-|------|----------|
-| Settings | `~/.config/clouddrive/config.toml` |
-| Linked accounts (e-mails only) | `~/.config/clouddrive/accounts.json` |
-| Sign-ins & client secret | system keyring, else `~/.config/clouddrive/{tokens,credentials}.json` (mode 600) |
-| File index | `~/.local/share/clouddrive/metadata.db` |
-| Logs | `~/.local/share/clouddrive/logs/` |
-| Content & thumbnail cache | `~/.cache/clouddrive/` |
+---
 
-Override with `CLOUDDRIVE_CONFIG_DIR`, `CLOUDDRIVE_DATA_DIR`, `CLOUDDRIVE_CACHE_DIR`.
-Set `CLOUDY_LOG_STDERR=1` to also log to the terminal, and `CLOUDDRIVE_NO_KEYRING=1` to force the file backend.
+## Architecture & Storage
+
+Cloudy is built with a clean three-tier architecture:
+
+<pre style="white-space: pre; overflow-x: auto;">
+┌────────────────────────────────────────────────────────┐
+│             Presentation: Tauri v2 + Vanilla JS        │
+│    (Zero framework bloat, fast load, GTK WebKit engine)│
+└───────────────────────────┬────────────────────────────┘
+                            │ IPC / Commands
+┌───────────────────────────▼────────────────────────────┐
+│                  clouddrive-core                       │
+│  ┌───────────────────────┐   ┌──────────────────────┐  │
+│  │ Virtual Tree Engine   │   │ Upload / Sync Router │  │
+│  └───────────┬───────────┘   └──────────┬───────────┘  │
+│              │                          │              │
+│  ┌───────────▼───────────┐   ┌──────────▼───────────┐  │
+│  │ SQLite Metadata Cache │   │ Drive API Client     │  │
+│  └───────────────────────┘   └──────────────────────┘  │
+└───────────────────────────┬────────────────────────────┘
+                            │ FUSE Interface
+┌───────────────────────────▼────────────────────────────┐
+│           clouddrive-fuse (POSIX Filesystem)           │
+└────────────────────────────────────────────────────────┘
+</pre>
+
+### File Locations
+
+| Component | Path | Description |
+|:---|:---|:---|
+| **Configuration** | `~/.config/clouddrive/config.toml` | Upload policies, sync intervals, mount points |
+| **Account Registry**| `~/.config/clouddrive/accounts.json` | Non-sensitive list of linked emails |
+| **Credentials** | System Keyring | Encrypted tokens via SecretService/KWallet (fallback: `0600` file) |
+| **Metadata DB** | `~/.local/share/clouddrive/metadata.db`| Fast SQLite virtual tree index |
+| **Logs** | `~/.local/share/clouddrive/logs/` | Daily rolling application logs |
+| **Media Cache** | `~/.cache/clouddrive/` | Content slices & thumbnail LRU cache |
+
+> [!NOTE]
+> Override any location using the environment variables `CLOUDDRIVE_CONFIG_DIR`, `CLOUDDRIVE_DATA_DIR`, or `CLOUDDRIVE_CACHE_DIR`. Set `CLOUDY_LOG_STDERR=1` for terminal logging and `CLOUDDRIVE_NO_KEYRING=1` to force file storage.
+
+---
+
+## Important Considerations
+
+- **Unified Quota Calculation**: Google's 15 GB quota is shared across Google Drive, Gmail, and Google Photos. Free space reflects total headroom across the whole account.
+- **Maximum Single File Size**: The largest single file you can add is bounded by the free capacity of your emptiest account (files are stored whole, not sliced).
+- **Inter-Account File Moves**: Moving files across accounts requires re-uploading (and temporarily doubling usage); Cloudy safely notifies you before cross-account copies.
+- **Shared With Me**: Files shared with you count against someone else's quota and are not pooled.
+
+---
 
 ## Troubleshooting
 
-| Symptom | Fix |
-|---------|-----|
-| "Error 403: access_denied" when signing in | Add that Google account under *OAuth consent screen → Test users*, or publish the app. |
-| An account says **Sign-in needed** after about a week | Your Google Cloud app is in *Testing* mode. Reconnect, and set the app to *In production* to stop it recurring. |
-| "redirect_uri_mismatch" / "invalid_client" | Create the OAuth client as type **Desktop app**, and re-enter the Client ID/Secret in Settings. |
-| "Google Drive API has not been used…" | Enable the Drive API for your project (SETUP.md, step 2). |
-| Google says **"Something went wrong"** after *Continue* | Google-side error. Copy the sign-in link from Cloudy's dialog into a Chromium-based browser (Chrome/Brave/Edge); see [SETUP.md](SETUP.md#google-says-something-went-wrong-after-continue). |
-| Browser doesn't open on sign-in | Use *Copy* in the dialog and paste the link into any browser on the same computer. |
-| Photos/thumbnails missing for a file | Google hasn't generated a thumbnail for it (common for fresh uploads); it appears later. |
+| Symptom | Cause & Solution |
+|:---|:---|
+| **403: access_denied** during sign-in | Your Google Cloud OAuth screen is in *Testing* mode. Add your email under **Test users**, or publish the app to Production. |
+| **Sign-in needed after ~7 days** | OAuth apps in *Testing* have 7-day token lifespans. Set the project status to **In production** in Google Cloud Console ([see SETUP.md](SETUP.md)). |
+| **redirect_uri_mismatch** / **invalid_client** | Ensure the OAuth client credential type is configured strictly as **Desktop app**. |
+| **Drive API has not been used...** | Enable the **Google Drive API** in your Google Cloud project library. |
+| **Browser doesn't open on sign-in** | Click the **Copy** button in the authorization dialog and paste the URL into your browser. |
+| **Thumbnails missing on fresh uploads** | Google's background thumbnail service hasn't indexed the file yet; it populates automatically shortly after. |
 
-## Development
+---
+
+## Development & Testing
 
 ```bash
-cargo test -p clouddrive-core      # unit tests + end-to-end tests against an in-process fake Google
-cargo test -p clouddrive-gui       # loopback media-server tests
-```
-The core end-to-end test (`core/tests/e2e.rs`) drives the real engine against a fake OAuth + Drive
-server: adding accounts, paginated sync, pooled folders, token refresh, chunked uploads, trash and
-revoked sign-ins.
+# Run core unit and integration tests (includes mock Drive server tests)
+cargo test -p clouddrive-core
 
-Layout: `core/` (engine: auth, Drive client, sync, tree, uploads), `gui/` (Tauri app + `frontend/`
-HTML/CSS/JS), `fuse-mount/` (FUSE filesystem).
+# Run media server streaming tests
+cargo test -p clouddrive-gui
+
+# Run frontend smoke tests in JSDOM
+cd gui/frontend-tests && npm test
+```
+
+The core end-to-end test suite (`core/tests/e2e.rs`) runs against an in-process mock Google OAuth + Drive server to validate pagination, conflict merging, token refresh, and upload resumption.
+
+---
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
