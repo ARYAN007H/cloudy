@@ -4,6 +4,10 @@ import {
   previewKind, accountColor, toast,
 } from './util.js';
 
+/* ============================================================ platform */
+const IS_MAC = /Mac/i.test(navigator.platform || navigator.userAgent || '');
+const MOD = IS_MAC ? '⌘' : 'Ctrl';
+
 /* ============================================================ state */
 const S = {
   view: 'files', cwd: 'pool', node: null, crumbs: [], items: [], sel: new Set(), anchor: null,
@@ -555,9 +559,9 @@ function renderSettings() {
       <div class="srow"><div><div>Where sign-ins are stored</div><div class="hint">${s.secure_storage ? 'In your system keyring.' : 'In a private file (permissions 600) because no keyring service was found.'}</div></div>
         <span class="chip ${s.secure_storage ? 'ok' : ''}">${icon('lock')}${s.secure_storage ? 'Keyring' : 'File'}</span></div></section>
     <section class="sgroup"><h3>Keyboard shortcuts</h3>
-      <div class="srow"><span>Search</span><kbd>/</kbd></div><div class="srow"><span>Select all</span><kbd>Ctrl</kbd>+<kbd>A</kbd></div>
-      <div class="srow"><span>Open / Rename / Delete</span><span><kbd>Enter</kbd> <kbd>F2</kbd> <kbd>Del</kbd></span></div>
-      <div class="srow"><span>Go up a folder</span><kbd>Backspace</kbd></div><div class="srow"><span>Upload files</span><kbd>Ctrl</kbd>+<kbd>U</kbd></div></section>
+      <div class="srow"><span>Search</span><kbd>/</kbd></div><div class="srow"><span>Select all</span><kbd>${MOD}</kbd>+<kbd>A</kbd></div>
+      <div class="srow"><span>Open / Rename / Delete</span><span><kbd>Enter</kbd> <kbd>F2</kbd> ${IS_MAC ? '<kbd>⌘</kbd>+<kbd>⌫</kbd>' : '<kbd>Del</kbd>'}</span></div>
+      <div class="srow"><span>Go up a folder</span>${IS_MAC ? '<kbd>⌘</kbd>+<kbd>↑</kbd>' : '<kbd>Backspace</kbd>'}</div><div class="srow"><span>Upload files</span><kbd>${MOD}</kbd>+<kbd>U</kbd></div></section>
     <p class="hint" style="text-align:center">Cloudy ${esc(S.version)}</p></div>`;
 }
 
@@ -1064,10 +1068,11 @@ function onKeydown(e) {
   if (mod && e.key.toLowerCase() === 'u') { e.preventDefault(); runAction('upload-files'); return; }
   if (S.view !== 'files') return;
   if (mod && e.key.toLowerCase() === 'a') { e.preventDefault(); S.sel = new Set(sortedItems().map((i) => i.id)); updateSelectionUI(); }
-  else if (e.key === 'Delete' && S.sel.size) runAction('trash');
+  else if ((e.key === 'Delete' || (IS_MAC && mod && e.key === 'Backspace')) && S.sel.size) runAction('trash');
   else if (e.key === 'F2' && S.sel.size === 1) runAction('rename');
   else if (e.key === 'Enter' && S.sel.size === 1) runAction('open');
-  else if (e.key === 'Backspace' && !S.results && S.node && S.node.parent_id && S.node.parent_id !== 'root') { e.preventDefault(); loadFolder(S.node.parent_id); }
+  // Up a folder: Backspace on Windows/Linux; on a Mac the ⌫ key means "delete", so it is ⌘↑ (as in Finder).
+  else if ((IS_MAC ? mod && e.key === 'ArrowUp' : e.key === 'Backspace') && !S.results && S.node && S.node.parent_id && S.node.parent_id !== 'root') { e.preventDefault(); loadFolder(S.node.parent_id); }
   else if (['ArrowDown', 'ArrowUp'].includes(e.key)) {
     const order = sortedItems().map((i) => i.id); if (!order.length) return;
     const cur = order.indexOf(S.anchor);

@@ -112,9 +112,9 @@ fn valid_name(name: &str) -> Result<String, CloudError> {
     Ok(n.to_string())
 }
 
+/// A Drive name made safe for the local filesystem (see `fsname` for the rules per OS).
 fn safe_local_name(name: &str) -> String {
-    let s: String = name.chars().map(|c| if c == '/' || c == '\0' { '_' } else { c }).collect();
-    if s.is_empty() || s == "." || s == ".." { "_".into() } else { s }
+    crate::fsname::local_name(name)
 }
 
 /// Atomically claim a free name in `dir`: files are created empty (`O_EXCL`),
@@ -1209,6 +1209,10 @@ fn walk_dir(dir: &Path, subpath: Vec<String>, plan: &mut UploadPlan, depth: usiz
     let mut entries: Vec<_> = rd.flatten().collect();
     entries.sort_by_key(|e| e.file_name());
     for e in entries {
+        // `.DS_Store`, `Thumbs.db`, … are created by the OS, not by the user.
+        if crate::fsname::is_os_junk(&e.file_name().to_string_lossy()) {
+            continue;
+        }
         let Ok(meta) = std::fs::symlink_metadata(e.path()) else { continue };
         if meta.is_file() {
             had_entries = true;
@@ -1356,6 +1360,20 @@ mod tests {
         assert_eq!(sniff_image_mime(b"\x89PNG\r\n"), Some("image/png"));
         assert_eq!(sniff_image_mime(b"RIFFxxxxWEBPVP8 "), Some("image/webp"));
         assert_eq!(sniff_image_mime(b"nope"), None);
+    }
+
+    #[test]
+    fn upload_plan_skips_os_junk_files() {
+        let d = tempfile::tempdir().unwrap();
+        let root = d.path().join("Pics");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("a.jpg"), "a").unwrap();
+        std::fs::write(root.join(".DS_Store"), "x").unwrap();
+        std::fs::write(root.join("Thumbs.db"), "x").unwrap();
+        let plan = collect_upload_plan(vec![root]).unwrap();
+        let names: Vec<String> =
+            plan.files.iter().map(|f| f.path.file_name().unwrap().to_string_lossy().to_string()).collect();
+        assert_eq!(names, vec!["a.jpg".to_string()]);
     }
 
     #[test]

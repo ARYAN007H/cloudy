@@ -16,9 +16,12 @@ parking_lot = { workspace = true }
 chrono = { workspace = true }
 serde_json = { workspace = true }
 
-fuser = "0.14"
-libc = "0.2"
 clap = { version = "4", features = ["derive"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 dirs = "5"
 uuid = { version = "1", features = ["v4"] }
+
+# FUSE exists on Linux only; elsewhere this crate builds to a stub that explains so.
+[target.'cfg(target_os = "linux")'.dependencies]
+fuser = "0.14"
+libc = "0.2"

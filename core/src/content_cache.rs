@@ -23,8 +23,8 @@ pub struct ContentCache {
     current: AtomicU64,
 }
 
-fn now_secs() -> u64 {
-    SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs()
+fn now_millis() -> u64 {
+    SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_millis() as u64
 }
 
 fn io<E: std::fmt::Display>(e: E) -> CloudError {
@@ -68,7 +68,7 @@ impl ContentCache {
         if meta.mtime != expected_mtime || !md5_ok {
             return None;
         }
-        meta.last_access = now_secs();
+        meta.last_access = now_millis();
         let _ = fs::write(&mpath, serde_json::to_string(&meta).unwrap_or_default());
         Some(fpath)
     }
@@ -80,7 +80,7 @@ impl ContentCache {
 
     pub fn put(&self, key: &str, data: &[u8], md5: &str, mtime: &str) -> Result<PathBuf, CloudError> {
         let size = data.len() as u64;
-        let meta = CacheMeta { md5: md5.into(), mtime: mtime.into(), size, last_access: now_secs() };
+        let meta = CacheMeta { md5: md5.into(), mtime: mtime.into(), size, last_access: now_millis() };
         let meta_json = serde_json::to_string(&meta).unwrap_or_default();
         let added = size + meta_json.len() as u64;
         let (fpath, mpath) = (self.file_path(key), self.meta_path(key));

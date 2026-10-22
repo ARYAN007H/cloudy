@@ -22,7 +22,10 @@ pub mod paths {
         dir("CLOUDDRIVE_CONFIG_DIR", dirs::config_dir())
     }
     pub fn data_dir() -> PathBuf {
-        dir("CLOUDDRIVE_DATA_DIR", dirs::data_dir())
+        // `data_local_dir`, not `data_dir`: on Windows the latter is the *roaming*
+        // profile, which domain setups sync around – wrong for a big SQLite index.
+        // On Linux and macOS both are the same folder as before.
+        dir("CLOUDDRIVE_DATA_DIR", dirs::data_local_dir())
     }
     pub fn cache_dir() -> PathBuf {
         dir("CLOUDDRIVE_CACHE_DIR", dirs::cache_dir())
@@ -122,5 +125,24 @@ pub fn write_atomic(path: &Path, data: &[u8], private: bool) -> std::io::Result<
         f.write_all(data)?;
         f.sync_all()?;
     }
-    std::fs::rename(&tmp, path)
+    let res = rename_with_retry(&tmp, path);
+    if res.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    res
+}
+
+/// On Windows a rename can fail for a moment while antivirus or the search
+/// indexer has the target open. A few short retries make that invisible.
+fn rename_with_retry(from: &Path, to: &Path) -> std::io::Result<()> {
+    let mut attempt = 0u32;
+    loop {
+        match std::fs::rename(from, to) {
+            Err(_) if cfg!(windows) && attempt < 5 => {
+                attempt += 1;
+                std::thread::sleep(std::time::Duration::from_millis(40 * u64::from(attempt)));
+            }
+            other => return other,
+        }
+    }
 }

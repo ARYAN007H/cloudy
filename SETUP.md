@@ -104,7 +104,11 @@ or fix it. It is a known problem with apps in *Testing* mode in some browsers. I
 ### Re-authentication prompts
 If CloudDrive asks you to reconnect an account, this is normal — Testing mode tokens expire after 7 days. Just click "Reconnect" and sign in again.
 
-### "No keyring daemon available"
+### Windows / macOS notes
+- Sign-ins live in Windows Credential Manager / the macOS Keychain, so the Linux keyring notes below do not apply.
+- Google's "unverified app" screen looks the same on every system: **Advanced → Go to Cloudy (unsafe)**.
+
+### "No keyring daemon available" (Linux)
 CloudDrive uses your system's secret storage. On Arch Linux:
 - GNOME/XFCE: `sudo pacman -S gnome-keyring libsecret`
 - KDE: `sudo pacman -S kwallet`

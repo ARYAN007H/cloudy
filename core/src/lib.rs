@@ -2,6 +2,7 @@ pub mod error;
 pub mod endpoints;
 pub mod store;
 pub mod config;
+pub mod fsname;
 pub mod logging;
 pub mod types;
 pub mod auth;

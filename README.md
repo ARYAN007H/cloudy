@@ -85,8 +85,9 @@ Cloudy pools the free **15 GB** from as many Google accounts as you like into a 
 ## Installation
 
 ### Requirements
-- **Linux**
+- **Linux, macOS or Windows 10/11** (macOS and Windows support is new – CI builds and tests all three)
 - **Rust stable (1.80+)**
+- The optional FUSE mount (`clouddrive-fuse`) is **Linux-only**; elsewhere use the desktop app.
 
 #### Arch Linux:
 ```bash
@@ -104,6 +105,19 @@ sudo apt install -y libwebkit2gtk-4.1-dev libgtk-3-dev libfuse3-dev libdbus-1-de
 sudo dnf install -y webkit2gtk4.1-devel gtk3-devel fuse3-devel libsecret-devel dbus-devel openssl-devel
 ```
 
+#### macOS:
+```bash
+xcode-select --install          # compiler toolchain; nothing else is needed
+```
+Sign-ins are stored in the macOS Keychain. Unsigned local builds may ask for your login
+password the first time they read the Keychain – choose *Always Allow*.
+
+#### Windows:
+- Install the **Visual Studio Build Tools** ("Desktop development with C++" workload) and Rust (`rustup`, MSVC toolchain).
+- **WebView2** ships with Windows 10/11; nothing else to install.
+- Sign-ins are stored in Windows Credential Manager. Settings live in `%APPDATA%\clouddrive`,
+  the file index and cache in `%LOCALAPPDATA%\clouddrive`.
+
 ### Build & Run
 
 ```bash
@@ -114,10 +128,10 @@ cd cloudy
 # Build optimized release binaries
 cargo build --release
 
-# Launch Desktop GUI
+# Launch Desktop GUI  (clouddrive-gui.exe on Windows)
 ./target/release/clouddrive-gui
 
-# (Optional) Mount FUSE filesystem
+# (Optional, Linux only) Mount FUSE filesystem
 ./target/release/clouddrive-fuse
 ```
 
@@ -211,6 +225,8 @@ Cloudy is built with a clean three-tier architecture:
 
 | Symptom | Cause & Solution |
 |:---|:---|
+| **Windows SmartScreen ("Windows protected your PC")** | The release binary is unsigned (open-source builds do not include a costly commercial certificate). Click **More info** &rarr; click **Run anyway**. |
+| **macOS Gatekeeper ("cannot be opened because the developer cannot be verified")** | The app is not notarized via Apple's paid Developer Program. In Finder, **right-click (or Control-click) Cloudy.app &rarr; select Open &rarr; click Open**. Alternatively, open **System Settings &rarr; Privacy & Security** and click **Open Anyway**. |
 | **403: access_denied** during sign-in | Your Google Cloud OAuth screen is in *Testing* mode. Add your email under **Test users**, or publish the app to Production. |
 | **Sign-in needed after ~7 days** | OAuth apps in *Testing* have 7-day token lifespans. Set the project status to **In production** in Google Cloud Console ([see SETUP.md](SETUP.md)). |
 | **redirect_uri_mismatch** / **invalid_client** | Ensure the OAuth client credential type is configured strictly as **Desktop app**. |
