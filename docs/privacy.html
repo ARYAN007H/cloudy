@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy Policy · Cloudy</title>
+<meta name="robots" content="index,follow">
+<link rel="icon" href="https://raw.githubusercontent.com/ARYAN007H/cloudy/main/gui/icons/128x128.png">
+<style>
+:root{--bg:#0b0b0f;--panel:#12121a;--line:#26263a;--text:#e6e6f0;--dim:#8b8ba3;--accent:#a78bfa;--accent2:#7dd3fc;color-scheme:dark}
+@media (prefers-color-scheme:light){:root{--bg:#f7f6fb;--panel:#ffffff;--line:#dcd9ea;--text:#1b1a26;--dim:#625f78;--accent:#6d4ae0;--accent2:#0b7ab5;color-scheme:light}}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font:15px/1.7 ui-monospace,"JetBrains Mono","SF Mono",Menlo,Consolas,monospace}
+a{color:var(--accent);text-decoration:none;border-bottom:1px dotted currentColor}
+a:hover{color:var(--accent2)}
+.wrap{max-width:860px;margin:0 auto;padding:40px 22px 80px}
+.top{margin-bottom:28px;font-size:13px}
+h1{font-size:30px;letter-spacing:-.02em;margin-bottom:14px}
+h2{font-size:16px;color:var(--accent2);margin:30px 0 10px}
+p,ul,ol,table{margin-bottom:12px}
+ul,ol{padding-left:22px} li{margin-bottom:4px}
+code{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:1px 6px;font-size:13px}
+table{width:100%;border-collapse:collapse;font-size:13.5px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+th{background:var(--panel)}
+footer{margin-top:50px;padding-top:18px;border-top:1px solid var(--line);color:var(--dim);font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="top"><a href="./">← Cloudy home</a></div>
+<h1>Cloudy Privacy Policy</h1>
+<p><strong>Effective date:</strong> 24 October 2026<br />
+<strong>Developer:</strong> Aryan (individual developer), India<br />
+<strong>Contact:</strong> gamingfanatics86@gmail.com  </p>
+<h2>1. Summary</h2>
+<p>Cloudy is free, open-source desktop software that runs <strong>entirely on your own computer</strong>. The developer ("we", "us") does not operate any server for Cloudy and <strong>does not collect, receive, store, view, sell, or share any of your data</strong>. There is no analytics, telemetry, advertising, tracking, or crash reporting in Cloudy. The source code is public at <a href="https://github.com/ARYAN007H/cloudy">https://github.com/ARYAN007H/cloudy</a>, so you can verify these statements.</p>
+<h2>2. Who is who</h2>
+<ul>
+<li><strong>You</strong> create your own Google Cloud project and OAuth client, and you choose which Google accounts to link. Cloudy talks to Google using <em>your</em> credentials.</li>
+<li><strong>Google</strong> provides Google Drive and the sign-in service. Google's handling of your data is governed by Google's own terms and privacy policy.</li>
+<li><strong>The developer</strong> only publishes the software. Because we never receive your data, we are not a "data controller", "data processor", "business", or "service provider" of your personal data under laws such as the GDPR, UK GDPR, CCPA/CPRA, or India's DPDP Act.</li>
+</ul>
+<h2>3. What Cloudy stores on your device</h2>
+<p>Everything below stays on your computer, in the locations listed in the project README.</p>
+<table>
+<thead>
+<tr>
+<th>Data</th>
+<th>Purpose</th>
+<th>Where</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>OAuth Client ID and Client Secret (yours)</td>
+<td>Sign in to Google</td>
+<td>System keyring, or a private <code>credentials.json</code> (permissions 600) if no keyring exists</td>
+</tr>
+<tr>
+<td>Refresh tokens for each linked account</td>
+<td>Stay signed in</td>
+<td>System keyring, or a private <code>tokens.json</code> (permissions 600)</td>
+</tr>
+<tr>
+<td>Account e-mail addresses and display names</td>
+<td>Show your account list</td>
+<td><code>accounts.json</code>, local memory</td>
+</tr>
+<tr>
+<td>File index: names, IDs, folder structure, sizes, types, modified dates, checksums, thumbnail links</td>
+<td>Fast browsing, search, and offline view</td>
+<td>Local SQLite database</td>
+</tr>
+<tr>
+<td>Cached file content and thumbnails</td>
+<td>Speed; preview</td>
+<td>Local cache folder (size-limited, clearable in Settings)</td>
+</tr>
+<tr>
+<td>Pending upload records: local paths, remote names, upload session URLs</td>
+<td>Resume interrupted uploads</td>
+<td>Local SQLite database</td>
+</tr>
+<tr>
+<td>Settings</td>
+<td>Preferences</td>
+<td><code>config.toml</code></td>
+</tr>
+<tr>
+<td>Log files</td>
+<td>Troubleshooting</td>
+<td>Local logs folder</td>
+</tr>
+</tbody>
+</table>
+<p>Notes:<br />
+- Logs may contain account e-mail addresses, file names, and error messages. Cloudy attempts to redact tokens and secrets from logs, but cannot guarantee that no sensitive text ever appears. Logs are never sent anywhere.<br />
+- The index and cache are <strong>not encrypted by Cloudy</strong>. Use full-disk encryption and a locked user account to protect them.</p>
+<h2>4. Google user data and API scope</h2>
+<p>Cloudy requests the Google Drive scope <code>https://www.googleapis.com/auth/drive</code> (full Drive access). It needs this because it must list, read, upload, move, rename, trash, restore, and permanently delete files that already exist in your accounts, which narrower scopes do not allow.</p>
+<p>Google user data obtained through this scope is:<br />
+- used <strong>only</strong> to provide the user-facing features you see in the app (browsing, previewing, uploading, downloading, organizing, and showing storage usage);<br />
+- processed <strong>only on your device</strong>;<br />
+- <strong>never</strong> transferred to us or to any third party, never sold, and never used for advertising, profiling, or training of AI/ML models;<br />
+- never read by humans, because no human other than you has access to it.</p>
+<p>Cloudy's use and transfer to any other app of information received from Google APIs will adhere to the <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, including the Limited Use requirements.</p>
+<h2>5. Network connections</h2>
+<p>Cloudy connects only to Google services (for example <code>accounts.google.com</code>, <code>oauth2.googleapis.com</code>, <code>www.googleapis.com</code>, and Google's thumbnail servers), using your credentials. Cloudy also runs two local-only services bound to <code>127.0.0.1</code> (your own machine): a temporary sign-in redirect listener, and a media server (protected by a random per-session token and host check) that feeds previews to the app window. These are not reachable from other devices. Links that Cloudy opens in your browser are restricted to Google domains.</p>
+<h2>6. Sharing, selling, and advertising</h2>
+<p>We do not share, sell, rent, or disclose your data to anyone, because we do not have it. Cloudy contains no ads and no third-party trackers.</p>
+<h2>7. This website</h2>
+<p>This website is hosted on GitHub Pages. We do not run analytics on it, but GitHub may log visits according to <a href="https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement">GitHub's Privacy Statement</a>. If you download Cloudy from GitHub, GitHub's terms apply to that download.</p>
+<h2>8. Retention and deletion</h2>
+<p>All data is under your control:<br />
+- <strong>Remove an account</strong> in Cloudy: deletes that account's token and local index. Files in Google Drive are <em>not</em> deleted.<br />
+- <strong>Clear cache</strong> in Settings: deletes cached content and thumbnails.<br />
+- <strong>Fully remove Cloudy's data:</strong> uninstall and delete the config, data, and cache folders listed in the README, and delete any keyring entries named <code>clouddrive-*</code>.<br />
+- <strong>Revoke Cloudy's access at Google:</strong> <a href="https://myaccount.google.com/permissions">https://myaccount.google.com/permissions</a>.<br />
+- <strong>Delete your Google Cloud project/OAuth client</strong> in the Google Cloud Console to disable the credentials entirely.</p>
+<h2>9. Your rights</h2>
+<p>Depending on where you live (for example under the GDPR, UK GDPR, CCPA/CPRA, or DPDP Act) you may have rights to access, correct, delete, or port your data. Because we hold none of your data, we cannot act on such requests; you exercise them directly on your own device (see section 8) and with Google for data held by Google.</p>
+<h2>10. Security</h2>
+<p>Cloudy uses the operating system keyring where available, owner-only file permissions for fallback secret files, PKCE and a random <code>state</code> value for sign-in, and token-protected loopback services. No software is perfectly secure. You are responsible for securing your device, accounts, and credentials. See the Terms of Service for limits on our responsibility.</p>
+<h2>11. Children</h2>
+<p>Cloudy is not directed to children. You must be old enough to hold a Google account and to agree to the Terms of Service in your country. We do not knowingly collect any information from anyone, including children.</p>
+<h2>12. International use</h2>
+<p>We do not transfer your data internationally because we do not receive it. Data exchanged between your device and Google is subject to Google's practices.</p>
+<h2>13. Changes</h2>
+<p>We may update this policy by posting a new version here with a new effective date. Continued use after an update means you accept it.</p>
+<h2>14. Contact</h2>
+<p>Questions: gamingfanatics86@gmail.com</p>
+<footer><a href="./">Home</a> · <a href="privacy.html">Privacy Policy</a> · <a href="terms.html">Terms of Service</a> · <a href="https://github.com/ARYAN007H/cloudy">Source</a></footer>
+</div>
+</body>
+</html>
