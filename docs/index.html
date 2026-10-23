@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cloudy · one drive from many Google accounts</title>
+<meta name="description" content="Cloudy pools the free 15 GB of every Google account you own into one big drive. Open source, self-hosted, no middleman.">
+<meta property="og:title" content="Cloudy">
+<meta property="og:description" content="One drive. 15 GB × N. Open source desktop app.">
+<link rel="icon" href="https://raw.githubusercontent.com/ARYAN007H/cloudy/main/gui/icons/128x128.png">
+<style>
+:root{
+  --bg:#0b0b0f; --panel:#12121a; --line:#26263a; --text:#e6e6f0; --dim:#8b8ba3;
+  --accent:#a78bfa; --accent2:#7dd3fc; --ok:#86efac;
+  color-scheme:dark;
+}
+@media (prefers-color-scheme:light){
+  :root{--bg:#f7f6fb;--panel:#ffffff;--line:#dcd9ea;--text:#1b1a26;--dim:#625f78;--accent:#6d4ae0;--accent2:#0b7ab5;--ok:#157a3d;color-scheme:light}
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--text);font:15px/1.65 ui-monospace,"JetBrains Mono","SF Mono",Menlo,Consolas,monospace;
+  background-image:radial-gradient(60rem 30rem at 50% -10%,rgba(167,139,250,.16),transparent 60%)}
+a{color:var(--accent);text-decoration:none;border-bottom:1px dotted currentColor}
+a:hover{color:var(--accent2)}
+.wrap{max-width:860px;margin:0 auto;padding:0 22px 80px}
+.rule{color:var(--dim);white-space:nowrap;overflow:hidden;user-select:none;margin:28px 0;text-align:center;letter-spacing:.05em}
+header{text-align:center;padding:56px 0 8px}
+.kao{color:var(--accent);font-size:15px;margin-bottom:10px;white-space:pre-wrap}
+.logo{width:92px;height:92px;border-radius:22px;margin:6px auto 14px;display:block;box-shadow:0 0 0 1px var(--line),0 12px 50px rgba(167,139,250,.35)}
+h1{font-size:44px;letter-spacing:-.02em;font-weight:700}
+h1 span{color:var(--accent)}
+.tag{color:var(--dim);max-width:560px;margin:10px auto 0}
+nav{margin:22px 0 0;display:flex;gap:6px 18px;justify-content:center;flex-wrap:wrap}
+nav a{border:0;color:var(--text)}
+nav a:hover{color:var(--accent)}
+nav i{color:var(--dim);font-style:normal}
+.badges{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:18px}
+.badge{border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:2px 12px;font-size:12px;color:var(--dim)}
+.badge b{color:var(--ok);font-weight:500}
+h2{font-size:15px;font-weight:600;color:var(--accent2);margin:0 0 14px;letter-spacing:.02em}
+h2::before{content:"## ";color:var(--dim)}
+p{margin-bottom:12px}
+.dim{color:var(--dim)}
+pre{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;overflow:auto;position:relative;font-size:13.5px;line-height:1.7}
+pre .c{color:var(--dim)} pre .p{color:var(--accent)}
+.copy{position:absolute;top:10px;right:10px;font:inherit;font-size:11px;color:var(--dim);background:transparent;border:1px solid var(--line);border-radius:8px;padding:2px 10px;cursor:pointer}
+.copy:hover{color:var(--text);border-color:var(--accent)}
+.diagram{color:var(--text)}
+.diagram em{font-style:normal;color:var(--accent)}
+.hero{border:1px solid var(--line);border-radius:14px;width:100%;display:block;box-shadow:0 20px 70px rgba(0,0,0,.45)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+.card{border:1px solid var(--line);background:var(--panel);border-radius:12px;padding:16px 18px;transition:border-color .15s,transform .15s}
+.card:hover{border-color:var(--accent);transform:translateY(-2px)}
+.card b{display:block;color:var(--text);margin-bottom:4px}
+.card b::before{content:"›  ";color:var(--accent)}
+.card span{color:var(--dim);font-size:13.5px}
+.shots{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px}
+.shots figure{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--panel)}
+.shots img{width:100%;display:block;aspect-ratio:16/10;object-fit:cover;object-position:top}
+.shots figcaption{padding:8px 14px;font-size:12.5px;color:var(--dim)}
+ol.steps{list-style:none;counter-reset:s}
+ol.steps li{counter-increment:s;display:flex;gap:14px;padding:10px 0;border-bottom:1px dashed var(--line)}
+ol.steps li::before{content:"0" counter(s);color:var(--accent);flex:none}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+td,th{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--dim);font-weight:500}
+footer{text-align:center;color:var(--dim);font-size:13px}
+footer .kao{margin-top:6px}
+@media(max-width:560px){h1{font-size:34px}.rule{font-size:11px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="kao">⊹ ࣪ ˖ ૮( ˶ᵔ ᵕ ᵔ˶ )っ</div>
+  <img class="logo" src="https://raw.githubusercontent.com/ARYAN007H/cloudy/main/gui/icons/128x128@2x.png" alt="Cloudy logo">
+  <h1>Cloud<span>y</span></h1>
+  <p class="tag">Every Google account comes with 15&nbsp;GB. Cloudy glues them together into <b>one big drive</b>. Browse, upload, stream and download everything from a single window.</p>
+  <nav>
+    <a href="#quick-start">Quick Start</a><i>·</i>
+    <a href="#features">Features</a><i>·</i>
+    <a href="#screens">Screenshots</a><i>·</i>
+    <a href="https://github.com/ARYAN007H/cloudy/blob/main/SETUP.md">Setup Guide</a><i>·</i>
+    <a href="https://github.com/ARYAN007H/cloudy">GitHub</a>
+  </nav>
+  <div class="badges">
+    <span class="badge"><b>●</b> open source · MIT</span>
+    <span class="badge">Linux · macOS · Windows</span>
+    <span class="badge">Rust + Tauri</span>
+    <span class="badge">talks only to Google</span>
+  </div>
+</header>
+
+<div class="rule">─────────────────────────────────────────────── ⊹ ࣪ ˖ ───────────────────────────────────────────────</div>
+
+<section>
+  <img class="hero" src="screenshots/05_accounts_pool.png" alt="Cloudy showing several Google accounts pooled into one storage meter">
+</section>
+
+<div class="rule">────────────────────────────────────────────────────────────────────────────────────────</div>
+
+<section>
+<h2>how it works</h2>
+<pre class="diagram"> you@gmail.com      ─┐
+ spare1@gmail.com    ├─►  <em>Cloudy</em>  ─►  one drive · 15 GB × N
+ spare2@gmail.com   ─┘
+</pre>
+<p style="margin-top:14px">Same-named folders from different accounts are merged into one. Every file still lives <b>whole</b> in a single account, so nothing is split, re-encoded or locked in. Remove Cloudy any day and your files are still sitting in Google Drive.</p>
+</section>
+
+<div class="rule">────────────────────────────────────────────────────────────────────────────────────────</div>
+
+<section id="quick-start">
+<h2>quick start</h2>
+<pre><button class="copy" data-copy>copy</button><span class="c"># grab the repo and build it</span>
+git clone https://github.com/ARYAN007H/cloudy.git
+cd cloudy
+cargo build --release
+
+<span class="c"># desktop app</span>
+./target/release/clouddrive-gui
+
+<span class="c"># optional: mount the pool as a normal folder (Linux)</span>
+./target/release/clouddrive-fuse</pre>
+<p class="dim" style="margin-top:12px">Prefer a ready-made installer? Check <a href="https://github.com/ARYAN007H/cloudy/releases">Releases</a> for Linux, macOS and Windows builds.</p>
+<p class="dim">Cloudy uses <i>your own</i> free Google API credentials, so your files never pass through anyone else's server. A built-in wizard walks you through it (about 5 minutes, once). The long version is in the <a href="https://github.com/ARYAN007H/cloudy/blob/main/SETUP.md">Setup Guide</a>.</p>
+</section>
+
+<div class="rule">────────────────────────────────────────────────────────────────────────────────────────</div>
+
+<section id="first-run">
+<h2>first run</h2>
+<ol class="steps">
+  <li><span>Create a project in Google Cloud and enable the <b>Drive API</b>.</span></li>
+  <li><span>Set up the OAuth consent screen and publish it <b>In production</b> so sign-ins don't expire every 7 days.</span></li>
+  <li><span>Create an OAuth client of type <b>Desktop app</b> and paste the Client ID and secret into Cloudy.</span></li>
+  <li><span>Click <b>Add a Google account</b>. Repeat for every account you own.</span></li>
+</ol>
+</section>
+
+<div class="rule">────────────────────────────────────────────────────────────────────────────────────────</div>
+
+<section id="features">
+<h2>features</h2>
+<div class="grid">
+  <div class="card"><b>One pool, many accounts</b><span>Union view of every account, with same-named folders merged.</span></div>
+  <div class="card"><b>Smart placement</b><span>New files go to the account with the most room. Or round-robin. Or pin one.</span></div>
+  <div class="card"><b>Instant, offline-friendly</b><span>The index is cached locally, so the app opens fast even without internet.</span></div>
+  <div class="card"><b>Photos &amp; video</b><span>Thumbnails, month grouping, full-screen viewer and seekable streaming.</span></div>
+  <div class="card"><b>Resumable transfers</b><span>Progress, cancel, retry, chunked uploads, whole-folder drag &amp; drop.</span></div>
+  <div class="card"><b>Trash that tells the truth</b><span>Drive's trash still eats quota. Cloudy shows it so you can free space.</span></div>
+  <div class="card"><b>Secure by default</b><span>Tokens live in your system keyring. No telemetry, no third-party servers.</span></div>
+  <div class="card"><b>FUSE mount</b><span>Expose the pool as a regular folder with <code>clouddrive-fuse</code>.</span></div>
+</div>
+</section>
+
+<div class="rule">────────────────────────────────────────────────────────────────────────────────────────</div>
+
+<section id="screens">
+<h2>screenshots</h2>
+<div class="shots">
+  <figure><img loading="lazy" src="screenshots/01_files_list.png" alt="File list"><figcaption>files · list</figcaption></figure>
+  <figure><img loading="lazy" src="screenshots/02_files_grid.png" alt="File grid"><figcaption>files · grid</figcaption></figure>
+  <figure><img loading="lazy" src="screenshots/03_photos_gallery.png" alt="Photos gallery"><figcaption>photos</figcaption></figure>
+  <figure><img loading="lazy" src="screenshots/04_photo_lightbox.png" alt="Photo viewer"><figcaption>viewer</figcaption></figure>
+  <figure><img loading="lazy" src="screenshots/05_accounts_pool.png" alt="Accounts"><figcaption>accounts</figcaption></figure>
+  <figure><img loading="lazy" src="screenshots/06_transfers.png" alt="Transfers"><figcaption>transfers</figcaption></figure>
+</div>
+</section>
+
+<div class="rule">────────────────────────────────────────────────────────────────────────────────────────</div>
+
+<section>
+<h2>good to know</h2>
+<table>
+  <tr><th>storage is shared</th><td>An account's 15&nbsp;GB covers Drive, Gmail and Google Photos together.</td></tr>
+  <tr><th>biggest file</th><td>Files aren't split, so the limit is the free space in your emptiest account.</td></tr>
+  <tr><th>moving files</th><td>Moves inside one account are instant. Between accounts needs a copy, so Cloudy declines.</td></tr>
+  <tr><th>shared with you</th><td>Files only shared <i>with</i> you aren't part of your pool.</td></tr>
+</table>
+</section>
+
+<div class="rule">────────────────────────────────────────────────────────────────────────────────────────</div>
+
+<footer>
+  <p><a href="https://github.com/ARYAN007H/cloudy">Source</a> · <a href="https://github.com/ARYAN007H/cloudy/issues">Issues</a> · <a href="https://github.com/ARYAN007H/cloudy/blob/main/LICENSE">MIT License</a></p>
+  <p>made by <a href="https://github.com/ARYAN007H">Aryan</a></p>
+  <div class="kao">⊹ ࣪ ˖ ૮( ˶ᵔ ᵕ ᵔ˶ )っ ☁</div>
+</footer>
+
+</div>
+<script>
+document.querySelectorAll('[data-copy]').forEach(function(b){
+  b.addEventListener('click',function(){
+    var t=b.parentElement.innerText.replace(/^copy\s*/,'').split('\n').filter(function(l){return l.trim()[0]!=='#'}).join('\n').trim();
+    (navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(function(){b.textContent='copied';setTimeout(function(){b.textContent='copy'},1500)},function(){});
+  });
+});
+</script>
+</body>
+</html>
